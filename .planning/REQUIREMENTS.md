@@ -68,12 +68,35 @@
 
 ## Traceability
 
-Roadmap mapping pending.
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| ARCH-01 | Phase 1 | Pending |
+| ARCH-02 | Phase 1 | Pending |
+| ARCH-03 | Phase 2 | Pending |
+| ARCH-04 | Phase 1 | Pending |
+| ARCH-05 | Phase 2 | Pending |
+| REST-01 | Phase 3 | Pending |
+| REST-02 | Phase 3 | Pending |
+| REST-03 | Phase 3 | Pending |
+| REST-04 | Phase 3 | Pending |
+| REST-05 | Phase 3 | Pending |
+| SAFE-01 | Phase 1 | Pending |
+| SAFE-02 | Phase 1 | Pending |
+| SAFE-03 | Phase 1 | Pending |
+| SAFE-04 | Phase 2 | Pending |
+| SPLT-01 | Phase 4 | Pending |
+| SPLT-02 | Phase 4 | Pending |
+| SPLT-03 | Phase 4 | Pending |
+| SPLT-04 | Phase 5 | Pending |
+| SPLT-05 | Phase 5 | Pending |
+| CLEAR-01 | Phase 6 | Pending |
+| CLEAR-02 | Phase 6 | Pending |
+| CLEAR-03 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-24*
