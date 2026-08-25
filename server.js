@@ -231,7 +231,7 @@ function manifestMatches(root, manifest) {
 
 // ---------- library (bundles) ----------
 // Bundle = folder in library/: song.opz + info.json + optional samplepacks/
-function archiveDiagnostic(errorCode, diagnostic) {
+function archiveDiagnostic(errorCode, diagnostic, safe = {}) {
   return {
     verified: false,
     complete: false,
@@ -239,6 +239,7 @@ function archiveDiagnostic(errorCode, diagnostic) {
     manualFreeEligible: false,
     diagnostic,
     errorCode,
+    ...safe,
   };
 }
 function isIsoTime(value) {
@@ -340,21 +341,22 @@ function classifyArchive(dir) {
         : code === 'ARCHIVE_PARTIAL' ? 'partial' : 'corrupt';
       return archiveDiagnostic(code, status);
     }
+    const safe = { created: info.created, source: info.source, evidence: { project: info.project } };
     let project;
     try { project = readArchiveEvidence(dir, { path: info.project.path, bytes: info.project.bytes, sha256: info.project.sha256 }); }
-    catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+    catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt', safe); }
     let parsed;
     try { parsed = parseProject(project); }
-    catch { return archiveDiagnostic('ARCHIVE_PARSE_FAILED', 'corrupt'); }
+    catch { return archiveDiagnostic('ARCHIVE_PARSE_FAILED', 'corrupt', safe); }
     if (info.samplepacks.captured) {
       const packRoot = path.join(dir, 'samplepacks');
       try {
         if (!fs.lstatSync(packRoot).isDirectory() || !manifestMatches(packRoot, info.samplepacks.files)) throw new Error('pack mismatch');
-      } catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+      } catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt', safe); }
     }
     if (info.snippet.status === 'included') {
       try { readArchiveEvidence(dir, { path: info.snippet.path, bytes: info.snippet.bytes, sha256: info.snippet.sha256 }); }
-      catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+      catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt', safe); }
     }
     const complete = info.samplepacks.captured && ['included', 'unlinked'].includes(info.snippet.status);
     return {
@@ -363,7 +365,10 @@ function classifyArchive(dir) {
       restoreEligible: false,
       manualFreeEligible: false,
       hash: hashFile(project),
+      schemaVersion: info.schemaVersion,
       tempo: parsed.tempo,
+      chains: parsed.chains,
+      patterns: parsed.patterns,
       usedPatterns: parsed.usedPatterns,
       created: info.created,
       source: info.source,
@@ -416,6 +421,71 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   if (autoRoot && fs.existsSync(autoRoot)) scanDir(autoRoot, true);
   items.sort((a, b) => new Date(b.modified) - new Date(a.modified));
   return items;
+}
+
+function archiveShelfData(library, drafts) {
+  const byNewest = (a, b) => String(b.created || '').localeCompare(String(a.created || ''))
+    || String(a.id).localeCompare(String(b.id));
+  const verified = library.filter(item => item.verified === true).map(item => {
+    const perTrack = Object.fromEntries(PACK_TYPES.map(type => [type, { files: 0, bytes: 0 }]));
+    const files = item.samplepacks.files.map(evidence => {
+      const [type, slotText] = evidence.path.split('/');
+      const slot = /^\d{2}$/.test(slotText || '') ? Number(slotText) : null;
+      if (perTrack[type]) {
+        perTrack[type].files++;
+        perTrack[type].bytes += evidence.bytes;
+      }
+      return { ...evidence, type: PACK_TYPES.includes(type) ? type : null, slot };
+    });
+    return {
+      id: item.file,
+      auto: item.auto === true,
+      schemaVersion: item.schemaVersion,
+      created: item.created,
+      source: item.source,
+      metadata: item.metadata,
+      tempo: item.tempo,
+      usedPatterns: item.usedPatterns,
+      chains: item.chains,
+      patterns: item.patterns,
+      project: { ...item.project, storedBytesMatch: true, parsed: true },
+      snippet: item.snippet,
+      samplepacks: {
+        captured: item.samplepacks.captured,
+        files,
+        summary: {
+          fileCount: files.length,
+          totalBytes: files.reduce((total, file) => total + file.bytes, 0),
+          perTrack,
+        },
+      },
+      verified: true,
+      complete: item.complete === true,
+      restoreEligible: item.restoreEligible === true,
+      manualFreeEligible: item.manualFreeEligible === true,
+    };
+  }).sort(byNewest);
+  const diagnostics = [
+    ...library.filter(item => item.verified !== true).map(item => ({
+      id: item.file,
+      name: item.metadata && typeof item.metadata.name === 'string' && item.metadata.name.length <= 120
+        ? item.metadata.name : item.file,
+      category: item.diagnostic,
+      reason: item.errorCode,
+      ...(item.created ? { created: item.created } : {}),
+      ...(item.source ? { source: item.source } : {}),
+      ...(item.evidence ? { evidence: item.evidence } : {}),
+    })),
+    ...drafts.map(draft => ({
+      id: draft.id,
+      name: draft.id,
+      category: 'failed',
+      reason: draft.errorCode,
+      ...(draft.time ? { created: draft.time } : {}),
+      ...(draft.source ? { source: draft.source } : {}),
+    })),
+  ].sort(byNewest);
+  return { verified, diagnostics, verifiedCount: verified.length, diagnosticCount: diagnostics.length };
 }
 
 function scanDrafts(libraryRoot = LIB_DIR) {
@@ -930,13 +1000,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/state') {
       const meta = loadMeta(testHooks.metaFile || META_FILE);
+      const libraryRoot = testHooks.libraryRoot || LIB_DIR;
+      const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
+      const library = scanLibrary(meta, libraryRoot, autoRoot);
+      const drafts = scanDrafts(libraryRoot);
       return json(res, 200, {
         ...scanSlots(meta),
-        library: scanLibrary(meta),
+        library,
+        archiveShelf: archiveShelfData(library, drafts),
         recordings: scanRecordings(),
         instruments: scanInstruments(),
         mutation: activeMutation,
-        drafts: scanDrafts(),
+        drafts,
       });
     }
     if (p === '/api/pattern') {
@@ -1170,6 +1245,7 @@ module.exports = {
   withMutation,
   archiveCapturedProject,
   scanLibrary,
+  archiveShelfData,
   scanDrafts,
   server,
 };
