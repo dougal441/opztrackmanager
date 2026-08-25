@@ -485,10 +485,13 @@ async function backup(slot) {
 }
 function renderLibrary() {
   const lib = document.getElementById('library');
-  const items = STATE.library.filter(i => !i.file.startsWith('instruments_'));
-  const snaps = STATE.library.filter(i => i.file.startsWith('instruments_'));
-  lib.innerHTML = items.length || snaps.length ? '' : '<div class="empty">Nothing here yet. Open a song and save it to start freeing up slots.</div>';
-  for (const it of items) {
+  const verified = STATE.library.filter(i => i.verified === true);
+  const unverified = STATE.library.filter(i => i.verified !== true);
+  lib.innerHTML = '<div class="lbl">verified archives</div><div id="verifiedArchives"></div>' +
+    '<div class="lbl">unverified diagnostics</div><div id="unverifiedDrafts"></div>';
+  const shelf = document.getElementById('verifiedArchives');
+  if (!verified.length) shelf.innerHTML = '<div class="empty">Nothing verified yet. Open a song and save it to the library.</div>';
+  for (const it of verified) {
     const d = document.createElement('div');
     d.className = 'libItem';
     const nm = it.name || (it.meta && it.meta.name) || it.file.replace(/^[\d-]+_/, '').replace('.opz','');
@@ -501,13 +504,27 @@ function renderLibrary() {
         (it.fromSlot ? ' · from ' + String(it.fromSlot).padStart(2,'0') : '') + ' · ' + new Date(it.modified).toLocaleDateString() + '</div>' +
       '<div class="libRow"><select id="' + rid + '">' + slotOptions() + '</select>' +
       '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified target recovery" data-f="' + esc(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
-    lib.appendChild(d);
+    shelf.appendChild(d);
   }
-  for (const it of snaps) {
+  const diagnostics = document.getElementById('unverifiedDrafts');
+  if (!unverified.length && !STATE.drafts.length) diagnostics.innerHTML = '<div class="empty">No failed or unverified archives.</div>';
+  for (const it of unverified) {
     const d = document.createElement('div');
     d.className = 'libItem';
-    d.innerHTML = '<div class="libName">instrument snapshot</div><div class="libSub">' + new Date(it.modified).toLocaleString() + '</div>';
-    lib.appendChild(d);
+    const nm = it.name || (it.meta && it.meta.name) || it.file;
+    d.innerHTML = '<div class="libName">' + esc(nm) + '<span class="flag">unverified</span></div>' +
+      '<div class="libSub">verified:false · legacy or evidence mismatch · restore unavailable</div>';
+    diagnostics.appendChild(d);
+  }
+  for (const draft of STATE.drafts) {
+    const d = document.createElement('div');
+    d.className = 'libItem';
+    const source = draft.source ? (draft.source.device ? 'mounted OP-Z' : 'local fixture') + ' · ' + draft.source.label : 'unknown source';
+    d.innerHTML = '<div class="libName">failed archive<span class="flag">unverified</span></div>' +
+      '<div class="libSub">verified:false · ' + esc(draft.errorCode) + ' · ' + esc(source) +
+      ' · slot ' + esc(String(draft.slot || (draft.source && draft.source.slot) || 'unknown')) +
+      ' · ' + esc(new Date(draft.time).toLocaleString()) + ' · diagnostic only; restore unavailable</div>';
+    diagnostics.appendChild(d);
   }
 }
 async function restore(file, auto, hasInstruments, rid) {
