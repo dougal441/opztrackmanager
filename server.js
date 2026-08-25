@@ -392,11 +392,16 @@ function requireMutationRequest(req) {
   if (req.headers['sec-fetch-site'] === 'cross-site') {
     throw requestError(403, 'CROSS_SITE_REQUEST', 'Cross-site mutation requests are not allowed.');
   }
+  const port = req.socket.localPort;
+  const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
+  if (!allowedHosts.has(String(req.headers.host || '').toLowerCase())) {
+    throw requestError(403, 'ORIGIN_MISMATCH', 'Mutation request origin does not match this server.');
+  }
   if (req.headers.origin) {
     let origin;
     try { origin = new URL(req.headers.origin); }
     catch { throw requestError(403, 'ORIGIN_MISMATCH', 'Mutation request origin does not match this server.'); }
-    if (!/^https?:$/.test(origin.protocol) || origin.host !== req.headers.host) {
+    if (!new Set([...allowedHosts].map(host => `http://${host}`)).has(origin.origin)) {
       throw requestError(403, 'ORIGIN_MISMATCH', 'Mutation request origin does not match this server.');
     }
   }

@@ -240,6 +240,7 @@ test('request boundary rejects forged and malformed mutation requests', async t 
     [{ body: valid, headers: { 'Content-Type': 'application/json' } }, 403, 'MUTATION_HEADER_REQUIRED'],
     [{ body: valid, headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1', 'Sec-Fetch-Site': 'cross-site' } }, 403, 'CROSS_SITE_REQUEST'],
     [{ body: valid, headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1', Origin: 'http://example.test' } }, 403, 'ORIGIN_MISMATCH'],
+    [{ body: valid, headers: { Host: 'attacker.example', Origin: 'http://attacker.example', 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } }, 403, 'ORIGIN_MISMATCH'],
     [{ body: valid, headers: { 'Content-Type': 'application/json; charset=iso-8859-1', 'X-OPZ-Mutation': '1' } }, 415, 'UNSUPPORTED_ENCODING'],
     [{ body: '{', headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } }, 400, 'INVALID_JSON'],
   ];
