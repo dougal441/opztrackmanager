@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OP-Z manager</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23ff4b00'/><circle cx='8' cy='8' r='4' fill='%23efeeea'/></svg>">
+<style>
+  :root {
+    --bg: #efeeea; --surface: #f7f6f3; --sunken: #e6e4de;
+    --ink: #1b1b19; --dim: #8b8880; --faint: #b8b5ac;
+    --line: #dcdad3; --line2: #cfccc4;
+    --accent: #ff4b00;
+    --t-kick: #5a9a6e; --t-snare: #c25b52; --t-hihat: #c2a23c; --t-sample: #cf7a3d;
+    --t-bass: #5f83ad; --t-lead: #8a76ad; --t-arp: #57a099; --t-chord: #b76e93;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans);
+         -webkit-font-smoothing: antialiased; }
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .35;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.02 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .wrap { max-width: 1380px; margin: 0 auto; padding: 28px 32px 80px; }
+  /* ---------- header ---------- */
+  header { display: flex; align-items: center; gap: 24px; padding-bottom: 18px;
+           border-bottom: 1px solid var(--line2); }
+  .mark { display: flex; align-items: baseline; gap: 10px; }
+  .mark .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); align-self: center; }
+  .mark h1 { font: 700 17px/1 var(--sans); letter-spacing: -0.02em; }
+  .mark h1 em { font-style: normal; color: var(--dim); font-weight: 400; }
+  nav.tabs { display: flex; gap: 2px; margin-left: 18px; background: var(--sunken);
+             padding: 3px; border-radius: 6px; }
+  .tab { font: 500 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .12em;
+         padding: 8px 16px; border-radius: 4px; cursor: pointer; color: var(--dim);
+         transition: color .18s, background .18s; border: none; background: none; }
+  .tab:hover { color: var(--ink); }
+  .tab.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(60,55,40,.12); }
+  #source { margin-left: auto; font: 11px/1.4 var(--mono); color: var(--dim); text-align: right; }
+  #source .st { display: inline-flex; align-items: center; gap: 6px; }
+  #source .st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  #source .st.on::before { background: #3f9e5f; }
+  #source .st.copy::before { background: #d9a514; }
+  .iconbtn { border: 1px solid var(--line2); background: var(--surface); border-radius: 5px;
+             width: 30px; height: 30px; cursor: pointer; color: var(--dim); font-size: 14px;
+             transition: color .18s, border-color .18s, transform .1s; }
+  .iconbtn:hover { color: var(--ink); border-color: var(--dim); }
+  .iconbtn:active { transform: scale(.95); }
+  /* ---------- generic ---------- */
+  .btn { font: 500 11px/1 var(--mono); letter-spacing: .06em; color: var(--ink);
+         background: var(--surface); border: 1px solid var(--line2); border-radius: 5px;
+         padding: 7px 13px; cursor: pointer; transition: all .18s; white-space: nowrap; }
+  .btn:hover { border-color: var(--ink); }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: wait; transform: none; }
+  .btn:focus-visible, .tab:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn.acc { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .btn.acc:hover { background: #000; }
+  .btn.live { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.ghost { border-color: transparent; color: var(--dim); }
+  .btn.ghost:hover { color: var(--ink); border-color: var(--line2); }
+  select, input[type=text], input[type=search] {
+    font: 13px var(--sans); color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line2); border-radius: 5px; padding: 6px 9px; max-width: 100%; }
+  textarea { width: 100%; font: 13px/1.6 var(--sans); color: var(--ink); background: var(--surface);
+             border: 1px solid var(--line2); border-radius: 5px; padding: 9px 11px;
+             resize: vertical; min-height: 64px; }
+  .lbl { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .14em;
+         color: var(--dim); margin: 14px 0 6px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  /* ---------- songs layout ---------- */
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 36px; margin-top: 26px; }
+  @media (max-width: 1080px) { main { grid-template-columns: 1fr; } }
+  .songRow { display: grid; grid-template-columns: 52px 1fr auto auto auto; gap: 18px;
+             align-items: center; padding: 14px 14px 14px 6px; border-bottom: 1px solid var(--line);
+             cursor: pointer; transition: background .18s; border-radius: 4px; }
+  .songRow:hover { background: var(--surface); }
+  .songRow.open { background: var(--surface); border-bottom-color: transparent; }
+  .num { font: 600 22px/1 var(--mono); color: var(--faint); text-align: right;
+         transition: color .18s; font-variant-numeric: tabular-nums; }
+  .songRow:hover .num, .songRow.open .num { color: var(--accent); }
+  .titleCell { min-width: 0; }
+  .songName { font: 600 15px/1.3 var(--sans); letter-spacing: -0.01em; background: none;
+              border: none; color: var(--ink); width: 100%; padding: 0;
+              border-bottom: 1px dashed transparent; }
+  .songName::placeholder { color: var(--faint); font-weight: 400; font-style: italic; }
+  .songName:focus { outline: none; border-bottom-color: var(--accent); }
+  .meta2 { font: 11px/1.5 var(--mono); color: var(--dim); margin-top: 2px;
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bpmCell { font: 500 13px var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .bpmCell small { color: var(--dim); font-size: 9px; letter-spacing: .1em; }
+  svg.matrix { display: block; }
+  svg.matrix rect.bgcell { fill: var(--sunken); }
+  .rowActions { display: flex; gap: 6px; }
+  .playBtn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line2);
+             background: var(--surface); cursor: pointer; color: var(--ink); font-size: 11px;
+             transition: all .18s; display: grid; place-items: center; }
+  .playBtn:hover { border-color: var(--accent); color: var(--accent); }
+  .playBtn:active { transform: scale(.93); }
+  .playBtn.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* expanded detail */
+  .detail { background: var(--surface); border-bottom: 1px solid var(--line);
+            padding: 6px 20px 24px 76px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 30px;
+            animation: slideIn .22s ease; border-radius: 0 0 4px 4px; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(-4px); } }
+  @media (max-width: 900px) { .detail { grid-template-columns: 1fr; padding-left: 20px; } }
+  .patRow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pat { font: 500 11px var(--mono); border: 1px solid var(--line2); background: var(--bg);
+         border-radius: 4px; padding: 5px 10px; cursor: pointer; transition: all .18s; }
+  .pat:hover { border-color: var(--accent); color: var(--accent); }
+  .pat.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chain { font: 11px/1.8 var(--mono); color: var(--dim); }
+  .chain b { color: var(--ink); font-weight: 500; }
+  .kitGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .kitGrid label { display: block; }
+  .kitGrid .klbl { font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em;
+                   margin-bottom: 3px; display: block; }
+  .kitGrid select { width: 100%; font-size: 11px; padding: 4px 6px; }
+  audio { width: 100%; height: 32px; margin-top: 8px; filter: grayscale(.4); }
+  /* ---------- aside ---------- */
+  aside section { border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+                  padding: 18px; margin-bottom: 20px; }
+  aside h2 { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .16em;
+             color: var(--dim); margin-bottom: 4px; }
+  aside .desc { font: 11px/1.5 var(--sans); color: var(--dim); margin-bottom: 12px; }
+  .libItem { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .libItem:last-child { border-bottom: none; }
+  .libName { font: 600 13px var(--sans); }
+  .libName .flag { font: 500 9px var(--mono); text-transform: uppercase; letter-spacing: .1em;
+                   color: var(--accent); border: 1px solid currentColor; padding: 1px 5px;
+                   margin-left: 6px; vertical-align: 1px; }
+  .libName .flag.auto { color: var(--dim); }
+  .libSub { font: 10px/1.6 var(--mono); color: var(--dim); }
+  .libRow { display: flex; gap: 6px; margin-top: 7px; }
+  .libRow select { flex: 1; font-size: 11px; padding: 4px 6px; }
+  .empty { font: 12px/1.6 var(--sans); color: var(--dim); padding: 8px 0; }
+  /* ---------- instruments ---------- */
+  #view-inst { display: none; margin-top: 26px; grid-template-columns: 1fr 340px; gap: 36px; }
+  #view-inst.on { display: grid; }
+  @media (max-width: 1150px) { #view-inst { grid-template-columns: 1fr; } }
+  table.inst { border-collapse: collapse; width: 100%; }
+  table.inst th { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .12em;
+                  padding: 0 0 10px; text-align: left; }
+  table.inst th.rn { width: 30px; }
+  table.inst td { border: 1px solid var(--line); padding: 0; background: var(--surface); }
+  table.inst td.rn { border: none; background: none; font: 600 12px var(--mono);
+                     color: var(--faint); text-align: center; }
+  .cell { min-height: 44px; padding: 7px 9px; cursor: pointer; position: relative;
+          transition: background .15s; }
+  .cell:hover { background: var(--bg); }
+  .cell.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+  .cell .nm { font: 500 11.5px/1.3 var(--sans); overflow-wrap: anywhere; }
+  .cell .sub2 { font: 9px/1.4 var(--mono); color: var(--dim); }
+  .cell.emptyCell { color: var(--faint); font: italic 11px var(--sans); background: var(--sunken); }
+  .cell.auditioning { background: var(--ink); }
+  .cell.auditioning .nm, .cell.auditioning .sub2 { color: var(--bg); }
+  .instBar { display: flex; gap: 8px; align-items: center; margin: 14px 0 0; min-height: 34px;
+             flex-wrap: wrap; }
+  .instHint { font: 11px/1.5 var(--sans); color: var(--dim); }
+  /* pack browser */
+  .pkRow { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center;
+           padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .pkRow:last-child { border-bottom: none; }
+  .pkPlay { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line2);
+            background: var(--bg); cursor: pointer; font-size: 9px; transition: all .15s; }
+  .pkPlay:hover { border-color: var(--accent); color: var(--accent); }
+  .pkPlay.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pkName { font: 500 12px var(--sans); }
+  .pkUser { font: 10px var(--mono); color: var(--dim); }
+  .pkType { font: 9px var(--mono); text-transform: uppercase; letter-spacing: .1em;
+            color: var(--dim); }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+           background: var(--ink); color: var(--bg); font: 500 12px var(--mono);
+           padding: 11px 20px; border-radius: 6px; display: none; z-index: 10;
+           box-shadow: 0 6px 24px rgba(40,36,25,.25); }
+  .skel { height: 54px; border-radius: 4px; background: linear-gradient(90deg, var(--sunken) 25%, var(--surface) 50%, var(--sunken) 75%);
+          background-size: 200% 100%; animation: sh 1.2s infinite; margin-bottom: 8px; }
+  @keyframes sh { to { background-position: -200% 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="mark"><div class="dot"></div><h1>OP–Z <em>manager</em></h1></div>
+  <nav class="tabs">
+    <button class="tab active" id="tab-songs" onclick="setTab('songs')">songs</button>
+    <button class="tab" id="tab-inst" onclick="setTab('inst')">instruments</button>
+  </nav>
+  <div id="source"></div>
+  <button class="iconbtn" onclick="load()" title="refresh">↻</button>
+</header>
+
+<main id="view-songs">
+  <div id="slots"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+  <aside>
+    <section>
+      <h2>library</h2>
+      <div class="desc">Songs saved off the device. Deep backups carry the full instrument setup for a complete reload.</div>
+      <div id="library"></div>
+    </section>
+    <section>
+      <h2>swap slots</h2>
+      <div class="libRow"><select id="swapA"></select><select id="swapB"></select>
+        <button class="btn" onclick="doSwap()">swap</button></div>
+    </section>
+  </aside>
+</main>
+
+<main id="view-inst">
+  <div>
+    <table class="inst" id="instTable"></table>
+    <div class="instBar" id="instBar">
+      <span class="instHint">Click a pack to audition it. Click another slot in the same column to move or swap. <span class="mono">~</span> marks factory content.</span>
+    </div>
+    <div class="instBar">
+      <button class="btn ghost" onclick="snapshotInstruments()">snapshot all instruments → library</button>
+    </div>
+  </div>
+  <aside>
+    <section>
+      <h2>pack browser · op1.fun</h2>
+      <div class="desc">Community sample packs. Preview freely; downloading into a slot needs a free op1.fun account token.</div>
+      <div class="libRow">
+        <input type="search" id="pkQ" placeholder="search packs…" style="flex:1"
+               onkeydown="if(event.key==='Enter')browsePacks(1)">
+        <select id="pkType" onchange="browsePacks(1)">
+          <option value="drum">drum kits</option><option value="sampler">sampler</option><option value="">all</option>
+        </select>
+      </div>
+      <div id="pkList" style="margin-top:8px"><div class="empty">Search or browse to load packs.</div></div>
+      <div class="libRow" id="pkPager" style="display:none">
+        <button class="btn ghost" onclick="browsePacks(pkPage-1)">← prev</button>
+        <span class="mono" style="align-self:center;font-size:11px" id="pkPageLbl"></span>
+        <button class="btn ghost" onclick="browsePacks(pkPage+1)">next →</button>
+      </div>
+      <div class="lbl" style="cursor:pointer" onclick="document.getElementById('pkSettings').style.display=''">account ▸</div>
+      <div id="pkSettings" style="display:none">
+        <input type="text" id="op1email" placeholder="op1.fun email" style="width:100%;margin-bottom:6px">
+        <input type="text" id="op1token" placeholder="API token (op1.fun → settings)" style="width:100%;margin-bottom:6px">
+        <button class="btn" onclick="saveOp1Settings()">save</button>
+      </div>
+    </section>
+  </aside>
+</main>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+let STATE = null, AIFS = null, SETTINGS = {}, mutationBusy = false;
+let expanded = JSON.parse(localStorage.getItem('opz.expanded') || 'null');
+let tab = localStorage.getItem('opz.tab') || 'songs';
+let selCell = null, pkPage = 1;
+
+const TYPES = ['1-kick','2-snare','3-perc','4-fx','5-bass','6-lead','7-arpeggio','8-chord'];
+const TYPE_LABELS = { '1-kick':'kick','2-snare':'snare','3-perc':'perc','4-fx':'fx',
+  '5-bass':'bass','6-lead':'lead','7-arpeggio':'arp','8-chord':'chord' };
+const TRACK_NAMES = ['kick','snare','hihat','sample','bass','lead','arp','chord'];
+const TRACK_TO_TYPE = { kick:'1-kick', snare:'2-snare', hihat:'3-perc', sample:'4-fx',
+  bass:'5-bass', lead:'6-lead', arp:'7-arpeggio', chord:'8-chord' };
+const TCOL = { kick:'var(--t-kick)', snare:'var(--t-snare)', hihat:'var(--t-hihat)', sample:'var(--t-sample)',
+  bass:'var(--t-bass)', lead:'var(--t-lead)', arp:'var(--t-arp)', chord:'var(--t-chord)' };
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3200);
+}
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: {'Content-Type':'application/json','X-OPZ-Mutation':'1'}, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (j.error) { toast(j.error); throw new Error(j.error); }
+  return j;
+}
+async function runMutation(callback) {
+  if (mutationBusy) return;
+  mutationBusy = true;
+  document.querySelectorAll('[data-mutation]').forEach(button => button.disabled = true);
+  try { return await callback(); }
+  finally {
+    mutationBusy = false;
+    document.querySelectorAll('[data-mutation]').forEach(button => button.disabled = false);
+  }
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+async function load() {
+  STATE = await api('/api/state');
+  try { SETTINGS = await api('/api/settings'); } catch {}
+  render();
+}
+function setTab(t) {
+  tab = t; localStorage.setItem('opz.tab', t);
+  document.getElementById('tab-songs').classList.toggle('active', t === 'songs');
+  document.getElementById('tab-inst').classList.toggle('active', t === 'inst');
+  document.getElementById('view-songs').style.display = t === 'songs' ? '' : 'none';
+  document.getElementById('view-inst').classList.toggle('on', t === 'inst');
+}
+
+function render() {
+  setTab(tab);
+  const srcEl = document.getElementById('source');
+  if (!STATE.source) srcEl.innerHTML = '<span class="st">no device — connect OP-Z in disk mode<br>(hold a track key while powering on)</span>';
+  else srcEl.innerHTML = STATE.source.device
+    ? '<span class="st on">OP-Z connected · disk mode<br>changes write to device</span>'
+    : '<span class="st copy">offline copy · plug in OP-Z<br>in disk mode to go live</span>';
+  renderSlots(); renderLibrary(); renderInstruments();
+  for (const id of ['swapA','swapB']) document.getElementById(id).innerHTML = slotOptions();
+  if (SETTINGS.op1funEmail) document.getElementById('op1email').value = SETTINGS.op1funEmail;
+  if (SETTINGS.op1funToken) document.getElementById('op1token').value = SETTINGS.op1funToken;
+}
+
+// ---------- step matrix (the "taste of the song") ----------
+function matrixSvg(s, w) {
+  // aggregate stepGrid across used patterns
+  const agg = Array.from({length: 8}, () => new Array(16).fill(0));
+  let max = 0;
+  for (const p of s.patterns) if (p.stepGrid) {
+    for (let t = 0; t < 8; t++) for (let st = 0; st < 16; st++) {
+      agg[t][st] += p.stepGrid[t][st];
+      if (agg[t][st] > max) max = agg[t][st];
+    }
+  }
+  const cw = 7, ch = 5, gap = 1.5;
+  const W = 16 * (cw + gap), H = 8 * (ch + gap);
+  let r = '<svg class="matrix" width="' + (w || W) + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="pattern activity">';
+  for (let t = 0; t < 8; t++) for (let st = 0; st < 16; st++) {
+    const v = agg[t][st];
+    const x = st * (cw + gap), y = t * (ch + gap);
+    if (!v) { r += '<rect class="bgcell" x="' + x + '" y="' + y + '" width="' + cw + '" height="' + ch + '" rx="1"/>'; continue; }
+    const op = 0.35 + 0.65 * Math.min(1, v / (max || 1));
+    r += '<rect x="' + x + '" y="' + y + '" width="' + cw + '" height="' + ch + '" rx="1" fill="' + TCOL[TRACK_NAMES[t]] + '" opacity="' + op.toFixed(2) + '"/>';
+  }
+  return r + '</svg>';
+}
+
+// ---------- songs ----------
+function renderSlots() {
+  const wrap = document.getElementById('slots');
+  wrap.innerHTML = '';
+  if (!STATE.slots.length) { wrap.innerHTML = '<div class="empty">No project source. Connect the OP-Z in disk mode and refresh.</div>'; return; }
+  for (const s of STATE.slots) {
+    const row = document.createElement('div');
+    if (s.empty || s.error) {
+      row.className = 'songRow';
+      row.innerHTML = '<div class="num">' + String(s.slot).padStart(2,'0') + '</div><div class="titleCell"><div class="meta2">' + (s.error ? 'unreadable — ' + esc(s.error) : 'empty') + '</div></div><div></div><div></div><div></div>';
+      wrap.appendChild(row); continue;
+    }
+    const name = s.meta && s.meta.name || '';
+    const tags = s.meta && s.meta.tags || '';
+    const chainStr = s.chains.length ? s.chains.map(c => c.patterns.map(p => p + 1).join('·')).join('  /  ') : '';
+    row.className = 'songRow' + (expanded === s.slot ? ' open' : '');
+    row.onclick = () => toggle(s.slot);
+    row.innerHTML =
+      '<div class="num">' + String(s.slot).padStart(2,'0') + '</div>' +
+      '<div class="titleCell">' +
+        '<input class="songName" placeholder="untitled" value="' + esc(name) + '" ' +
+          'onclick="event.stopPropagation()" onchange="saveMeta(\'' + s.hash + '\',{name:this.value})">' +
+        '<div class="meta2">' + s.usedPatterns.length + ' pat' + (chainStr ? ' · ' + chainStr : '') + (tags ? ' · ' + esc(tags) : '') + '</div>' +
+      '</div>' +
+      '<div>' + matrixSvg(s, 136) + '</div>' +
+      '<div class="bpmCell">' + s.tempo + '<small> BPM</small></div>' +
+      '<div class="rowActions" onclick="event.stopPropagation()">' +
+        '<button class="playBtn" id="play-' + s.slot + '" onclick="playSlot(' + s.slot + ')" title="sketch">▶</button>' +
+        (s.meta && s.meta.wav ? '<button class="playBtn" id="wavbtn-' + s.slot + '" onclick="toggleWav(' + s.slot + ')" title="recording">●</button>' : '') +
+      '</div>';
+    wrap.appendChild(row);
+    if (expanded === s.slot) {
+      const det = document.createElement('div');
+      det.className = 'detail';
+      det.innerHTML = detailHtml(s);
+      wrap.appendChild(det);
+    }
+  }
+}
+function aggTracksPresent(s) {
+  const set = new Set();
+  for (const p of s.patterns) for (const t of Object.keys(p.trackNotes)) set.add(t);
+  return TRACK_NAMES.filter(t => set.has(t));
+}
+function slotOptions() {
+  return STATE.slots.map(s => {
+    const nm = s.meta && s.meta.name ? ' — ' + s.meta.name : '';
+    return '<option value="' + s.slot + '">' + String(s.slot).padStart(2,'0') + esc(nm) + '</option>';
+  }).join('');
+}
+function kitOptions(track, sel) {
+  const type = TRACK_TO_TYPE[track];
+  const opts = ['<option value="">synth stand-in</option>'];
+  if (STATE.instruments && STATE.instruments[type]) {
+    STATE.instruments[type].forEach((it, i) => {
+      if (it && !it.engine && it.size) opts.push('<option value="' + (i + 1) + '"' + (sel == i + 1 ? ' selected' : '') + '>' + esc(it.name) + '</option>');
+    });
+  }
+  return opts.join('');
+}
+function detailHtml(s) {
+  const recOpts = ['<option value="">— none —</option>'].concat(
+    STATE.recordings.map(r => '<option value="' + esc(r.path) + '"' + (s.meta && s.meta.wav === r.path ? ' selected' : '') + '>' +
+      esc(r.name) + (r.root === 'device' ? ' · on device' : '') + '</option>')).join('');
+  const pats = s.usedPatterns.map(i =>
+    '<span class="pat" id="pat-' + s.slot + '-' + i + '" onclick="event.stopPropagation();playPattern(' + s.slot + ',' + i + ')">▶ ' + String(i + 1).padStart(2,'0') + '</span>').join('');
+  const kit = (s.meta && s.meta.kit) || {};
+  const present = aggTracksPresent(s);
+  const kitSel = present.map(t =>
+    '<label><span class="klbl" style="color:' + TCOL[t] + '">' + t + '</span>' +
+    '<select onchange="setKit(\'' + s.hash + '\',\'' + t + '\',this.value)" onclick="event.stopPropagation()">' + kitOptions(t, kit[t]) + '</select></label>').join('');
+  const autoNote = s.meta && s.meta.wavMatch === 'auto-bpm' ? '<div class="libSub">auto-matched by BPM — change if wrong</div>' : '';
+  return '<div onclick="event.stopPropagation()">' +
+      '<div class="lbl">patterns — tap to hear</div><div class="patRow">' + pats + '</div>' +
+      '<div class="lbl">sketch instruments <span style="text-transform:none;letter-spacing:0">(real packs from the device)</span></div>' +
+      '<div class="kitGrid">' + kitSel + '</div>' +
+      '<div class="lbl">arrangement</div><div class="chain">' +
+        (s.chains.length ? s.chains.map(c => '<b>chain</b> ' + c.patterns.map(p => String(p + 1).padStart(2,'0')).join(' → ')).join('<br>') : 'no chains saved') + '</div>' +
+    '</div>' +
+    '<div onclick="event.stopPropagation()">' +
+      '<div class="lbl">recording</div>' +
+      '<select style="width:100%" onchange="saveMeta(\'' + s.hash + '\',{wav:this.value,wavMatch:\'manual\'})">' + recOpts + '</select>' + autoNote +
+      (s.meta && s.meta.wav ? '<audio id="wav-' + s.slot + '" preload="none" src="/audio?path=' + encodeURIComponent(s.meta.wav) + '"></audio>' : '') +
+      '<div class="lbl">tags</div>' +
+      '<input type="text" style="width:100%" placeholder="handpan, ambient, wip…" value="' + esc(s.meta && s.meta.tags || '') + '" ' +
+        'onchange="saveMeta(\'' + s.hash + '\',{tags:this.value})">' +
+      '<div class="lbl">notes</div>' +
+      '<textarea placeholder="Where you left off, what to try next…" ' +
+        'onchange="saveMeta(\'' + s.hash + '\',{notes:this.value})">' + esc(s.meta && s.meta.notes || '') + '</textarea>' +
+      '<div class="lbl">library</div>' +
+      '<button class="btn acc" data-mutation onclick="backup(' + s.slot + ')">save song to library</button>' +
+    '</div>';
+}
+function toggle(slot) {
+  stopSketch();
+  expanded = expanded === slot ? null : slot;
+  localStorage.setItem('opz.expanded', JSON.stringify(expanded));
+  render();
+}
+async function saveMeta(hash, fields) {
+  await api('/api/meta', { hash, fields });
+  const s = STATE.slots.find(x => x.hash === hash);
+  if (s) s.meta = { ...(s.meta || {}), ...fields };
+  render();
+}
+async function setKit(hash, track, val) {
+  const s = STATE.slots.find(x => x.hash === hash);
+  const kit = { ...((s.meta && s.meta.kit) || {}) };
+  if (val) kit[track] = parseInt(val, 10); else delete kit[track];
+  packBuffers.clear();
+  await saveMeta(hash, { kit });
+}
+async function backup(slot) {
+  const s = STATE.slots.find(x => x.slot === slot);
+  const name = prompt('Name for the library:', s.meta && s.meta.name || '');
+  if (name === null) return;
+  const deep = confirm('Deep backup?\n\nOK — include every sample pack (~25 MB) so the song can be fully reloaded later, instruments and all.\nCancel — song data only.');
+  const source = STATE.source ? STATE.source.label : 'no source';
+  const song = s.meta && s.meta.name || name || 'untitled';
+  if (!confirm('Archive slot ' + slot + ' — "' + song + '"?\nSource: ' + source + '\nDevice data: will not change.')) return;
+  await runMutation(async () => {
+    const r = await api('/api/backup', { slot, name, deep });
+    toast('verified → ' + r.file + ' · ' + r.guidance);
+    await load();
+  });
+}
+function renderLibrary() {
+  const lib = document.getElementById('library');
+  const items = STATE.library.filter(i => !i.file.startsWith('instruments_'));
+  const snaps = STATE.library.filter(i => i.file.startsWith('instruments_'));
+  lib.innerHTML = items.length || snaps.length ? '' : '<div class="empty">Nothing here yet. Open a song and save it to start freeing up slots.</div>';
+  for (const it of items) {
+    const d = document.createElement('div');
+    d.className = 'libItem';
+    const nm = it.name || (it.meta && it.meta.name) || it.file.replace(/^[\d-]+_/, '').replace('.opz','');
+    const rid = 'rs-' + it.file.replace(/[^a-zA-Z0-9]/g, '');
+    d.innerHTML =
+      '<div class="libName">' + esc(nm) +
+        (it.hasInstruments ? '<span class="flag">full</span>' : '') +
+        (it.auto ? '<span class="flag auto">auto</span>' : '') + '</div>' +
+      '<div class="libSub">' + it.tempo + ' BPM · ' + it.usedPatterns.length + ' pat' +
+        (it.fromSlot ? ' · from ' + String(it.fromSlot).padStart(2,'0') : '') + ' · ' + new Date(it.modified).toLocaleDateString() + '</div>' +
+      '<div class="libRow"><select id="' + rid + '">' + slotOptions() + '</select>' +
+      '<button class="btn" data-f="' + esc(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
+    lib.appendChild(d);
+  }
+  for (const it of snaps) {
+    const d = document.createElement('div');
+    d.className = 'libItem';
+    d.innerHTML = '<div class="libName">instrument snapshot</div><div class="libSub">' + new Date(it.modified).toLocaleString() + '</div>';
+    lib.appendChild(d);
+  }
+}
+async function restore(file, auto, hasInstruments, rid) {
+  const slot = parseInt(document.getElementById(rid).value, 10);
+  const target = STATE.slots.find(x => x.slot === slot);
+  const tn = target && target.meta && target.meta.name || ('slot ' + slot);
+  if (!confirm('Load "' + file + '" into slot ' + slot + '?\nCurrent contents (' + tn + ') back up automatically first.')) return;
+  let restoreInstruments = false;
+  if (hasInstruments) restoreInstruments = confirm('Also restore the saved instrument setup?\nSample packs on the device will be overwritten with the saved versions.');
+  const r = await api('/api/restore', { file, auto, slot, restoreInstruments });
+  toast('loaded' + (r.instrumentsRestored ? ' · instruments restored' : ''));
+  load();
+}
+async function doSwap() {
+  const a = parseInt(document.getElementById('swapA').value, 10);
+  const b = parseInt(document.getElementById('swapB').value, 10);
+  if (a === b) return toast('pick two different slots');
+  if (!confirm('Swap slots ' + a + ' and ' + b + '?')) return;
+  await api('/api/swap', { a, b });
+  toast('swapped ' + a + ' ⇄ ' + b); load();
+}
+function toggleWav(slot) {
+  stopSketch();
+  let el = document.getElementById('wav-' + slot);
+  if (!el) {
+    const s = STATE.slots.find(x => x.slot === slot);
+    el = document.createElement('audio');
+    el.id = 'wav-' + slot;
+    el.src = '/audio?path=' + encodeURIComponent(s.meta.wav);
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    el.onended = () => document.getElementById('wavbtn-' + slot) && document.getElementById('wavbtn-' + slot).classList.remove('playing');
+  }
+  const btn = document.getElementById('wavbtn-' + slot);
+  if (el.paused) {
+    document.querySelectorAll('audio').forEach(a => { a.pause(); });
+    document.querySelectorAll('.playBtn.playing').forEach(b => b.classList.remove('playing'));
+    el.play(); btn && btn.classList.add('playing');
+  } else { el.pause(); btn && btn.classList.remove('playing'); }
+}
+
+// ---------- instruments ----------
+function renderInstruments() {
+  const tbl = document.getElementById('instTable');
+  if (!STATE.instruments) { tbl.innerHTML = '<tr><td style="border:none;background:none"><div class="empty">Sample packs need the OP-Z in disk mode (or the opzdisk copy).</div></td></tr>'; return; }
+  let h = '<tr><th class="rn"></th>';
+  for (const t of TYPES) h += '<th style="color:' + TCOL[TRACK_NAMES[TYPES.indexOf(t)]] + '">' + TYPE_LABELS[t] + '</th>';
+  h += '</tr>';
+  for (let s = 0; s < 10; s++) {
+    h += '<tr><td class="rn">' + (s + 1) + '</td>';
+    for (const t of TYPES) {
+      const item = STATE.instruments[t][s];
+      const sel = selCell && selCell.type === t && selCell.slot === s + 1;
+      h += '<td><div class="cell' + (sel ? ' sel' : '') + (item ? '' : ' emptyCell') + '" id="cell-' + t + '-' + (s+1) + '" onclick="cellClick(\'' + t + '\',' + (s + 1) + ')">';
+      if (item) h += '<div class="nm">' + (item.builtin ? '~' : '') + esc(item.name) + '</div>' +
+                     '<div class="sub2">' + (item.engine ? 'engine' : item.size ? Math.round(item.size / 1024) + 'k · ▶' : 'factory') + '</div>';
+      else h += 'empty';
+      h += '</div></td>';
+    }
+    h += '</tr>';
+  }
+  tbl.innerHTML = h;
+  const bar = document.getElementById('instBar');
+  if (selCell) {
+    const item = STATE.instruments[selCell.type][selCell.slot - 1];
+    bar.innerHTML = '<b class="mono" style="font-size:11px;color:' + TCOL[TRACK_NAMES[TYPES.indexOf(selCell.type)]] + '">' +
+      TYPE_LABELS[selCell.type].toUpperCase() + ' ' + String(selCell.slot).padStart(2,'0') + '</b>' +
+      (item
+        ? '<span style="font-size:12px">' + esc(item.name) + (item.size || item.engine ? '' : ' · factory content — audio lives in the device') + '</span>' +
+          (item.engine || !item.size ? '' : '<button class="btn" onclick="audition(\'' + selCell.type + '\',' + selCell.slot + ')">▶ audition</button>') +
+          '<button class="btn ghost" onclick="removePack()">remove → trash</button>'
+        : '<select id="importSel" style="max-width:220px"><option>loading…</option></select>' +
+          '<button class="btn" onclick="importPack()">import .aif</button>' +
+          '<span class="instHint">or pick one from the pack browser →</span>') +
+      '<button class="btn ghost" onclick="selCell=null;render()">done</button>';
+    if (!item) loadAifs();
+  } else {
+    bar.innerHTML = '<span class="instHint">Click a pack to select · click it again to deselect · second click in the same column moves or swaps · <span class="mono">~</span> marks factory content · eject before unplugging.</span>';
+  }
+}
+async function loadAifs() {
+  if (!AIFS) AIFS = await api('/api/instruments/aifs');
+  const sel = document.getElementById('importSel');
+  if (sel) sel.innerHTML = AIFS.map(a => '<option value="' + esc(a.path) + '">' + esc(a.name) + '</option>').join('') || '<option value="">no .aif files in Music folder</option>';
+}
+async function cellClick(type, slot) {
+  const item = STATE.instruments[type][slot - 1];
+  if (selCell && selCell.type === type && selCell.slot !== slot) {
+    const a = selCell.slot, itemA = STATE.instruments[type][a - 1], itemB = item;
+    if (!itemA) { selCell = { type, slot }; return render(); }
+    const verb = itemB ? 'Swap' : 'Move';
+    if (confirm(verb + ' ' + TYPE_LABELS[type] + ' "' + itemA.name + '" ' + a + ' → ' + slot + '?')) {
+      await api('/api/instruments/move', { type, from: a, to: slot });
+      selCell = null; AIFS = null; packBuffers.clear();
+      toast(verb.toLowerCase() + 'ed'); return load();
+    }
+    selCell = null; return render();
+  }
+  const wasSel = selCell && selCell.type === type && selCell.slot === slot;
+  selCell = wasSel ? null : { type, slot };
+  render();
+  if (!wasSel && item && !item.engine && item.size) audition(type, slot);
+}
+async function removePack() {
+  const item = STATE.instruments[selCell.type][selCell.slot - 1];
+  if (!confirm('Remove "' + item.name + '" from ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '?\nIt moves to library/instrument-trash — recoverable.')) return;
+  await api('/api/instruments/remove', { type: selCell.type, slot: selCell.slot });
+  selCell = null; packBuffers.clear(); toast('moved to trash'); load();
+}
+async function importPack() {
+  const source = document.getElementById('importSel').value;
+  if (!source) return;
+  await api('/api/instruments/import', { type: selCell.type, slot: selCell.slot, source });
+  selCell = null; AIFS = null; toast('imported — eject the device to load it'); load();
+}
+async function snapshotInstruments() {
+  const r = await api('/api/instruments/snapshot', {});
+  toast('snapshot saved → ' + r.file); load();
+}
+
+// ---------- pack browser ----------
+async function browsePacks(page) {
+  pkPage = Math.max(1, page || 1);
+  const q = document.getElementById('pkQ').value.trim();
+  const t = document.getElementById('pkType').value;
+  const list = document.getElementById('pkList');
+  list.innerHTML = '<div class="skel"></div><div class="skel"></div>';
+  try {
+    const r = await api('/api/op1fun/browse?page=' + pkPage + (q ? '&q=' + encodeURIComponent(q) : '') + (t ? '&ptype=' + t : ''));
+    list.innerHTML = r.patches.length ? '' : '<div class="empty">No packs found.</div>';
+    for (const pk of r.patches.slice(0, 20)) {
+      const d = document.createElement('div');
+      d.className = 'pkRow';
+      const target = selCell && !STATE.instruments[selCell.type][selCell.slot - 1];
+      d.innerHTML =
+        (pk.preview ? '<button class="pkPlay" onclick="previewPack(this,\'' + esc(pk.preview) + '\')">▶</button>' : '<span></span>') +
+        '<div><div class="pkName">' + esc(pk.name) + '</div><div class="pkUser">' + esc(pk.user) + ' · <span class="pkType">' + pk.type + '</span></div></div>' +
+        (target ? '<button class="btn" data-p="' + esc(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
+                : '<span class="pkType">select empty slot</span>');
+      list.appendChild(d);
+    }
+    document.getElementById('pkPager').style.display = '';
+    document.getElementById('pkPageLbl').textContent = 'page ' + pkPage;
+  } catch (e) { list.innerHTML = '<div class="empty">Couldn\'t reach op1.fun — check connection.</div>'; }
+}
+let pkAudio = null;
+function previewPack(btn, url) {
+  stopSketch();
+  if (pkAudio && !pkAudio.paused && pkAudio.src === url) { pkAudio.pause(); btn.classList.remove('playing'); return; }
+  if (pkAudio) pkAudio.pause();
+  document.querySelectorAll('.pkPlay.playing').forEach(b => b.classList.remove('playing'));
+  pkAudio = new Audio(url);
+  pkAudio.play(); btn.classList.add('playing');
+  pkAudio.onended = () => btn.classList.remove('playing');
+}
+async function downloadPack(patchPath) {
+  if (!selCell) return toast('select an empty instrument slot first');
+  const r = await api('/api/op1fun/download', { patchPath, type: selCell.type, slot: selCell.slot });
+  toast('downloaded → ' + r.file + ' — eject device to load');
+  selCell = null; load();
+}
+async function saveOp1Settings() {
+  await api('/api/settings', {
+    op1funEmail: document.getElementById('op1email').value.trim(),
+    op1funToken: document.getElementById('op1token').value.trim(),
+  });
+  SETTINGS = await api('/api/settings');
+  toast('saved');
+}
+
+// ================= audio engine =================
+let AC = null, sketchTimer = null, sketchActive = null, liveNodes = [];
+const packBuffers = new Map(); // "type/slot" -> {info, buffer}
+function ctx() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
+
+async function loadPack(type, slot) {
+  const key = type + '/' + slot;
+  if (packBuffers.has(key)) return packBuffers.get(key);
+  try {
+    const info = await api('/api/pack/info?type=' + type + '&slot=' + slot);
+    const ab = await (await fetch('/api/pack/audio?type=' + type + '&slot=' + slot)).arrayBuffer();
+    const buffer = await ctx().decodeAudioData(ab);
+    const entry = { info, buffer };
+    packBuffers.set(key, entry);
+    return entry;
+  } catch (e) { packBuffers.set(key, null); return null; }
+}
+
+// audition a pack: drums → first few slices; sampler → base note
+async function audition(type, slot) {
+  stopSketch();
+  const cell = document.getElementById('cell-' + type + '-' + slot);
+  cell && cell.classList.add('auditioning');
+  const pk = await loadPack(type, slot);
+  if (!pk) { cell && cell.classList.remove('auditioning'); return toast('couldn\'t decode this pack'); }
+  const ac = ctx(); await ac.resume();
+  let t = ac.currentTime + 0.05;
+  if (pk.info.kind === 'drum' && pk.info.slices.length) {
+    for (const sl of pk.info.slices.slice(0, 6)) {
+      playSlice(ac, pk, sl, t, 1, 0.9);
+      t += Math.min(0.5, (sl.end - sl.start) / pk.info.sampleRate + 0.06);
+    }
+  } else {
+    playSample(ac, pk, t, 1, 0.9, 2.0);
+    t += 2;
+  }
+  setTimeout(() => cell && cell.classList.remove('auditioning'), (t - ac.currentTime) * 1000);
+}
+function playSlice(ac, pk, sl, t, rate, gain) {
+  const src = ac.createBufferSource(), g = ac.createGain();
+  src.buffer = pk.buffer; src.playbackRate.value = rate;
+  const dur = (sl.end - sl.start) / pk.info.sampleRate / rate;
+  g.gain.setValueAtTime(gain, t);
+  g.gain.setValueAtTime(gain, t + Math.max(0.01, dur - 0.02));
+  g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  src.connect(g).connect(ac.destination);
+  src.start(t, sl.start / pk.info.sampleRate, dur * rate + 0.02);
+  liveNodes.push(src);
+}
+function playSample(ac, pk, t, rate, gain, maxDur) {
+  const src = ac.createBufferSource(), g = ac.createGain();
+  src.buffer = pk.buffer; src.playbackRate.value = rate;
+  const dur = Math.min(maxDur, pk.buffer.duration / rate);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.008);
+  g.gain.setValueAtTime(gain, t + Math.max(0.01, dur - 0.08));
+  g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  src.connect(g).connect(ac.destination);
+  src.start(t, 0, dur * rate + 0.05);
+  liveNodes.push(src);
+}
+
+function stopSketch() {
+  if (sketchTimer) { clearInterval(sketchTimer); sketchTimer = null; }
+  liveNodes.forEach(n => { try { n.stop(); } catch {} });
+  liveNodes = [];
+  document.querySelectorAll('.playing').forEach(e => e.classList.remove('playing'));
+  sketchActive = null;
+}
+async function playSlot(slot) {
+  const s = STATE.slots.find(x => x.slot === slot);
+  if (!s || !s.usedPatterns.length) return toast('no notes in this slot');
+  playPattern(slot, s.usedPatterns[0]);
+}
+function defaultDrumKit() {
+  // first playable (non-factory, non-engine) pack in each drum column
+  const kit = {};
+  for (const t of ['kick', 'snare', 'hihat', 'sample']) {
+    const col = STATE.instruments && STATE.instruments[TRACK_TO_TYPE[t]];
+    if (!col) continue;
+    const i = col.findIndex(it => it && !it.engine && it.size);
+    if (i >= 0) kit[t] = i + 1;
+  }
+  return kit;
+}
+async function playPattern(slot, pattern) {
+  const key = slot + ':' + pattern;
+  if (sketchActive === key) { stopSketch(); return; }
+  stopSketch();
+  document.querySelectorAll('audio').forEach(a => a.pause());
+  const s = STATE.slots.find(x => x.slot === slot);
+  const data = await api('/api/pattern?slot=' + slot + '&pattern=' + pattern);
+  const notes = data.notes.filter(n => n.track <= 7);
+  if (!notes.length) return toast('no musical notes in this pattern');
+  sketchActive = key;
+  const btn = document.getElementById('play-' + slot); if (btn) btn.classList.add('playing');
+  const pat = document.getElementById('pat-' + slot + '-' + pattern); if (pat) pat.classList.add('playing');
+
+  // resolve kit: user selection > default drum slot 1 > synth stand-in
+  const kit = { ...defaultDrumKit(), ...((s.meta && s.meta.kit) || {}) };
+  const packs = {};
+  await Promise.all(TRACK_NAMES.map(async (t, ti) => {
+    const slotSel = kit[t];
+    if (!slotSel) return;
+    const type = TRACK_TO_TYPE[t];
+    const item = STATE.instruments && STATE.instruments[type] && STATE.instruments[type][slotSel - 1];
+    if (!item || item.engine) return;
+    packs[ti] = await loadPack(type, slotSel);
+  }));
+
+  const ac = ctx(); await ac.resume();
+  const stepDur = 60 / data.tempo / 4;
+  const loopLen = 16 * stepDur;
+  let loopStart = ac.currentTime + 0.1;
+  const scheduleLoop = (t0) => { for (const n of notes) scheduleNote(ac, n, t0 + n.step * stepDur, stepDur, packs); };
+  scheduleLoop(loopStart);
+  sketchTimer = setInterval(() => {
+    if (ac.currentTime > loopStart + loopLen - 0.25) { loopStart += loopLen; scheduleLoop(loopStart); }
+  }, 100);
+}
+function midiFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function scheduleNote(ac, n, t, stepDur, packs) {
+  const vel = Math.max(0.15, Math.min(1, n.vel / 127));
+  const durS = Math.max(0.06, Math.min(3, (n.dur / 2560) * stepDur));
+  const pk = packs && packs[n.track];
+  if (pk) {
+    if (n.track <= 3 && pk.info.kind === 'drum' && pk.info.slices.length) {
+      // OP-Z drum keys start at F3 (MIDI 53), one slice per semitone
+      const idx = ((n.note - 53) % pk.info.slices.length + pk.info.slices.length) % pk.info.slices.length;
+      return playSlice(ac, pk, pk.info.slices[idx], t, 1, 0.85 * vel);
+    }
+    if (n.track >= 4 && pk.info.kind === 'sampler' && pk.info.baseFreq) {
+      const rate = midiFreq(n.note) / pk.info.baseFreq;
+      return playSample(ac, pk, t, rate, 0.7 * vel, durS);
+    }
+    if (n.track >= 4 && pk.info.kind === 'sample') { // plain sample, assume C4 root
+      return playSample(ac, pk, t, midiFreq(n.note) / 261.63, 0.7 * vel, durS);
+    }
+  }
+  synthNote(ac, n, t, vel, durS);
+}
+function synthNote(ac, n, t, vel, durS) {
+  const master = ac.destination;
+  if (n.track === 0) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.9 * vel, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    o.connect(g).connect(master); o.start(t); o.stop(t + 0.3); liveNodes.push(o);
+  } else if (n.track === 1) {
+    noiseHit(ac, t, 0.14, 0.5 * vel, 1800);
+  } else if (n.track === 2) {
+    noiseHit(ac, t, 0.05, 0.28 * vel, 8000);
+  } else if (n.track === 3) {
+    noiseHit(ac, t, 0.09, 0.4 * vel, 3000 + (n.note % 12) * 400);
+  } else {
+    const types = { 4: 'sawtooth', 5: 'square', 6: 'triangle', 7: 'sawtooth' };
+    const gains = { 4: 0.4, 5: 0.3, 6: 0.3, 7: 0.18 };
+    const o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+    o.type = types[n.track]; o.frequency.value = midiFreq(n.note + (n.track === 4 ? -12 : 0));
+    f.type = 'lowpass'; f.frequency.value = n.track === 4 ? 900 : 2600;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gains[n.track] * vel, t + 0.01);
+    g.gain.setValueAtTime(gains[n.track] * vel, t + Math.max(0.01, durS - 0.05));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + durS);
+    o.connect(f).connect(g).connect(master);
+    o.start(t); o.stop(t + durS + 0.05); liveNodes.push(o);
+  }
+}
+function noiseHit(ac, t, dur, gain, cutoff) {
+  const len = Math.ceil(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = cutoff;
+  const g = ac.createGain(); g.gain.value = gain;
+  src.connect(f).connect(g).connect(ac.destination); src.start(t); liveNodes.push(src);
+}
+
+load();
+</script>
+</body>
+</html>
