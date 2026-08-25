@@ -7,6 +7,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const { parseProject } = require('../parser.js');
 
 // Keep the pre-test server implementation from binding a port during the TDD red run.
 const originalListen = http.Server.prototype.listen;
@@ -442,4 +443,65 @@ test('state reports sanitized active mutation and separate drafts', async t => {
 
   release();
   await active;
+});
+
+test('library UI segregates verified archives from unverified diagnostics', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const body = /function renderLibrary\(\) \{([\s\S]*?)\n\}\nasync function restore/.exec(html)[1];
+  assert.match(body, /STATE\.library\.filter\(i => i\.verified === true\)/);
+  assert.match(body, /STATE\.library\.filter\(i => i\.verified !== true\)/);
+  assert.match(body, /STATE\.drafts/);
+  assert.match(body, /id="verifiedArchives"/);
+  assert.match(body, /id="unverifiedDrafts"/);
+  assert.match(body, /verified:false/);
+
+  const unverified = /for \(const it of unverified\)([\s\S]*?)for \(const draft/.exec(body)[1];
+  assert.doesNotMatch(unverified, /onclick="restore|<select/);
+  const drafts = /for \(const draft of STATE\.drafts\)([\s\S]*)/.exec(body)[1];
+  assert.doesNotMatch(drafts, /onclick="restore|<select/);
+});
+
+test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, async t => {
+  const mountedRoot = '/Volumes/OP-Z';
+  const sourcePath = path.join(mountedRoot, 'projects', 'project01.opz');
+  assert.ok(fs.existsSync(sourcePath), 'mounted slot 1 must exist');
+  const before = fs.readFileSync(sourcePath);
+  const beforeSha256 = crypto.createHash('sha256').update(before).digest('hex');
+  const previousRoot = process.env.OPZ_ROOT;
+  process.env.OPZ_ROOT = mountedRoot;
+  t.after(() => {
+    if (previousRoot === undefined) delete process.env.OPZ_ROOT;
+    else process.env.OPZ_ROOT = previousRoot;
+    if (subject.server.listening) subject.server.close();
+  });
+
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const state = await requestJson(subject.server, '/api/state');
+  assert.equal(state.status, 200);
+  assert.equal(state.body.source.device, true);
+
+  const archived = await requestJson(subject.server, '/api/backup', {
+    slot: 1,
+    name: 'Phase 1 mounted archive UAT',
+    deep: false,
+  });
+  assert.equal(archived.status, 200);
+  assert.equal(archived.body.verified, true);
+  assert.equal(archived.body.source.device, true);
+  const bundleName = subject.validateBundleId(archived.body.file);
+  const libraryRoot = path.join(__dirname, '..', 'library');
+  const bundle = subject.resolveChild(libraryRoot, bundleName);
+  const stored = fs.readFileSync(path.join(bundle, 'song.opz'));
+  const info = JSON.parse(fs.readFileSync(path.join(bundle, 'info.json'), 'utf8'));
+  parseProject(stored);
+  assert.ok(stored.equals(before));
+  assert.equal(info.verification.verified, true);
+  assert.equal(info.verification.sha256, beforeSha256);
+  assert.equal(info.verification.bytes, before.length);
+  assert.equal(archived.body.evidence.sha256, beforeSha256);
+  assert.equal(archived.body.evidence.bytes, before.length);
+
+  const after = fs.readFileSync(sourcePath);
+  assert.equal(after.length, before.length);
+  assert.equal(crypto.createHash('sha256').update(after).digest('hex'), beforeSha256);
 });
