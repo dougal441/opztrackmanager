@@ -287,6 +287,71 @@ test('mutation conflict rejects before resolver work and releases after success 
   assert.equal(await subject.withMutation('after failure', async () => 'released'), 'released');
 });
 
+test('guard before capture rejects an HTTP competitor with zero source work', async t => {
+  const roots = tempRoots(t);
+  let release;
+  let entered;
+  const barrier = new Promise(resolve => { release = resolve; });
+  const accepted = new Promise(resolve => { entered = resolve; });
+  let resolverCalls = 0;
+  let captureCalls = 0;
+  subject.testHooks.sourceResolver = () => { resolverCalls++; return roots.source; };
+  subject.testHooks.captureSource = (slot, source) => { captureCalls++; return subject.captureSource(slot, source); };
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.beforeBackupCapture = async () => { entered(); await barrier; };
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; });
+
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  const first = requestJson(subject.server, '/api/backup', { slot: 1, name: '', deep: false });
+  await accepted;
+
+  const conflict = await requestJson(subject.server, '/api/backup', { slot: 1, name: '', deep: false });
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.code, 'MUTATION_CONFLICT');
+  assert.equal(conflict.body.active.operation, 'archive slot 1');
+  assert.equal(resolverCalls, 0);
+  assert.equal(captureCalls, 0);
+
+  const state = await requestJson(subject.server, '/api/state');
+  assert.equal(state.status, 200);
+  assert.equal(state.body.mutation.operation, 'archive slot 1');
+  release();
+  assert.equal((await first).status, 200);
+  assert.equal(resolverCalls, 1);
+  assert.equal(captureCalls, 1);
+});
+
+test('later-phase routes unavailable before filesystem mutation', async t => {
+  const unavailable = [
+    '/api/restore',
+    '/api/swap',
+    '/api/clear-slot',
+    '/api/instruments/move',
+    '/api/instruments/remove',
+    '/api/instruments/import',
+    '/api/instruments/snapshot',
+    '/api/op1fun/download',
+  ];
+  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup'], unavailable });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  for (const route of unavailable) {
+    const result = await requestJson(subject.server, route, {});
+    assert.equal(result.status, 409, route);
+    assert.equal(result.body.code, 'PHASE_UNAVAILABLE', route);
+    assert.match(result.body.guidance, /Phase [236]/, route);
+  }
+
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /disabled[^>]+Phase 3[^>]+>load</);
+  assert.match(html, /disabled[^>]+Phase 3[^>]+>swap</);
+  assert.match(html, /disabled[^>]+Phase 3[^>]+>remove/);
+  assert.match(html, /disabled[^>]+Phase 3[^>]+>import/);
+  assert.match(html, /disabled[^>]+Phase 3[^>]+>snapshot/);
+  assert.match(html, /disabled[^>]+Phase 3[^>]+>→/);
+});
+
 test('state reports sanitized active mutation and separate drafts', async t => {
   let release;
   let started;
