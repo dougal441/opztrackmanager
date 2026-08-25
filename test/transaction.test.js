@@ -103,6 +103,26 @@ test('verified archive tracer publishes reread, parsed bytes with evidence', t =
   assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, false);
 });
 
+test('deep archive verifies every stored sample-pack byte', t => {
+  const roots = tempRoots(t);
+  const packDir = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
+  fs.mkdirSync(packDir, { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'kick.aif'), Buffer.from('sample bytes'));
+  const result = subject.archiveCapturedProject(subject.captureSource(1, roots.source), {
+    libraryRoot: roots.libraryRoot,
+    name: 'Deep fixture',
+    deep: true,
+  });
+  const bundle = path.join(roots.libraryRoot, result.file);
+  const info = JSON.parse(fs.readFileSync(path.join(bundle, 'info.json'), 'utf8'));
+  assert.deepEqual(info.manifest.map(item => item.path), ['1-kick/01/kick.aif']);
+  assert.equal(subject.scanLibrary({ songs: {} }, roots.libraryRoot, null)[0].verified, true);
+
+  fs.writeFileSync(path.join(bundle, 'samplepacks', '1-kick', '01', 'kick.aif'), Buffer.from('corrupt'));
+  assert.equal(subject.scanLibrary({ songs: {} }, roots.libraryRoot, null)[0].verified, false);
+  assert.throws(() => subject.findBundle(result.file, false, roots.libraryRoot, null), error => error.code === 'BUNDLE_UNVERIFIED');
+});
+
 test('binary bytes and undersized input never publish an invalid archive', t => {
   const fixture = fs.readFileSync(FIXTURE);
   assert.ok(fixture.includes(0));
