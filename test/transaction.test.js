@@ -8,6 +8,7 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const path = require('path');
+const vm = require('node:vm');
 const { parseProject } = require('../parser.js');
 
 // Keep the pre-test server implementation from binding a port during the TDD red run.
@@ -219,6 +220,27 @@ test('mutation controls share one operation-aware busy wrapper', () => {
     assert.match(html, new RegExp('data-mutation="[^"]+"[^>]+onclick="' + action + '\\('), action);
   }
   assert.match(html, /runMutation\('archive slot ' \+ slot/);
+});
+
+test('mutation busy state resets after success and failure', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const source = html.match(/async function runMutation\([\s\S]*?\n}\n(?=function esc)/)[0];
+  const states = [];
+  const context = vm.createContext({
+    STATE: { source: { device: true, label: 'OP-Z' } },
+    mutationBusy: null,
+    render() { states.push(Boolean(context.mutationBusy)); },
+  });
+  vm.runInContext(source, context);
+
+  assert.equal(await context.runMutation('archive slot 1', async () => 'ok'), 'ok');
+  assert.deepEqual(states, [true, false]);
+  assert.equal(context.mutationBusy, null);
+
+  states.length = 0;
+  await assert.rejects(context.runMutation('archive slot 1', async () => { throw new Error('fail'); }), /fail/);
+  assert.deepEqual(states, [true, false]);
+  assert.equal(context.mutationBusy, null);
 });
 
 test('result guidance remains source-specific and visible', t => {
