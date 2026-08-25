@@ -280,9 +280,12 @@ test('metadata boundary rejects unsupported shapes and normalizes invalid persis
     { kit: { kick: 0 } },
     { kit: { unknown: 1 } },
   ]) assert.throws(() => subject.validateMetadataFields(fields), error => error.code === 'INVALID_METADATA');
-  assert.deepEqual(subject.validateMetadataFields({
-    name: 'Song', tags: '', notes: '', wav: '', wavMatch: 'manual', kit: { kick: 1, chord: 10 },
-  }).kit, { kick: 1, chord: 10 });
+  const validFields = subject.validateMetadataFields({
+    name: 'Song', tags: '', notes: '', wav: '', wavRoot: 'device', wavMatch: 'manual', kit: { kick: 1, chord: 10 },
+  });
+  assert.equal(validFields.wavRoot, 'device');
+  assert.deepEqual(validFields.kit, { kick: 1, chord: 10 });
+  assert.throws(() => subject.validateMetadataFields({ wavRoot: 'other' }), error => error.code === 'INVALID_METADATA');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-meta-'));
   const file = path.join(dir, 'meta.json');
@@ -314,6 +317,29 @@ test('audio rejects invalid ranges without crashing the server', async t => {
 
   const state = await requestJson(subject.server, '/api/state');
   assert.equal(state.status, 200);
+});
+
+test('mounted recordings preserve device identity and play from the device root', async t => {
+  const roots = tempRoots(t);
+  const bounce = path.join(roots.sourceRoot, 'bounces', 'device-only.wav');
+  fs.mkdirSync(path.dirname(bounce));
+  fs.writeFileSync(bounce, Buffer.from('device audio'));
+  useFixtureSource(t, roots.sourceRoot);
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+
+  const state = await requestJson(subject.server, '/api/state');
+  const recording = state.body.recordings.find(item => item.name === 'device-only.wav');
+  assert.equal(recording.root, 'device');
+  const played = await request(subject.server, '/audio?root=device&path=' + encodeURIComponent(recording.path), { raw: true });
+  assert.equal(played.status, 200);
+  assert.equal(played.body, 'device audio');
+
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const audioUrlSource = /function audioUrl\(path, root\) \{[^\n]+\}/.exec(html)[0];
+  const audioUrl = Function(`${audioUrlSource}; return audioUrl;`)();
+  assert.equal(audioUrl(recording.path, recording.root), '/audio?path=bounces%2Fdevice-only.wav&root=device');
+  assert.match(html, /wav === r\.path && wavRoot === r\.root/);
 });
 
 test('malformed request target returns 400 without crashing the server', async t => {

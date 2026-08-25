@@ -451,7 +451,7 @@ function parseByteRange(header, size) {
   return { start, end: Math.min(requestedEnd, size - 1) };
 }
 function validateMetadataFields(fields) {
-  const limits = { name: 120, tags: 1000, notes: 10000, wav: 2000, wavMatch: 40 };
+  const limits = { name: 120, tags: 1000, notes: 10000, wav: 2000, wavRoot: 6, wavMatch: 40 };
   if (!isPlainObject(fields) || JSON.stringify(fields).length > 20000
       || Object.keys(fields).some(key => !Object.hasOwn(limits, key) && key !== 'kit')) {
     throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
@@ -462,7 +462,8 @@ function validateMetadataFields(fields) {
           || Object.values(value).some(slot => !Number.isInteger(slot) || slot < 1 || slot > 10)) {
         throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
       }
-    } else if (typeof value !== 'string' || value.length > limits[key] || value.includes('\0')) {
+    } else if (key === 'wavRoot' ? !['music', 'device'].includes(value)
+      : typeof value !== 'string' || value.length > limits[key] || value.includes('\0')) {
       throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
     }
   }

@@ -290,6 +290,7 @@ async function runMutation(operation, callback) {
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 function attr(s) { return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+function audioUrl(path, root) { return '/audio?path=' + encodeURIComponent(path) + (root === 'device' ? '&root=device' : ''); }
 function sourceGuidance(source, outcome) {
   if (!source) return 'Reconnect the source, then refresh.';
   if (source.device) return outcome === 'failure'
@@ -422,8 +423,10 @@ function kitOptions(track, sel) {
   return opts.join('');
 }
 function detailHtml(s) {
-  const recOpts = ['<option value="">— none —</option>'].concat(
-    STATE.recordings.map(r => '<option value="' + attr(r.path) + '"' + (s.meta && s.meta.wav === r.path ? ' selected' : '') + '>' +
+  const wavRoot = s.meta && s.meta.wavRoot === 'device' ? 'device' : 'music';
+  const recOpts = ['<option value="" data-path="" data-root="music">— none —</option>'].concat(
+    STATE.recordings.map(r => '<option value="' + attr(r.root + ':' + r.path) + '" data-path="' + attr(r.path) + '" data-root="' + r.root + '"' +
+      (s.meta && s.meta.wav === r.path && wavRoot === r.root ? ' selected' : '') + '>' +
       esc(r.name) + (r.root === 'device' ? ' · on device' : '') + '</option>')).join('');
   const pats = s.usedPatterns.map(i =>
     '<span class="pat" id="pat-' + s.slot + '-' + i + '" onclick="event.stopPropagation();playPattern(' + s.slot + ',' + i + ')">▶ ' + String(i + 1).padStart(2,'0') + '</span>').join('');
@@ -442,8 +445,8 @@ function detailHtml(s) {
     '</div>' +
     '<div onclick="event.stopPropagation()">' +
       '<div class="lbl">recording</div>' +
-      '<select style="width:100%" onchange="saveMeta(\'' + s.hash + '\',{wav:this.value,wavMatch:\'manual\'})">' + recOpts + '</select>' + autoNote +
-      (s.meta && s.meta.wav ? '<audio id="wav-' + s.slot + '" preload="none" src="/audio?path=' + encodeURIComponent(s.meta.wav) + '"></audio>' : '') +
+      '<select style="width:100%" onchange="setRecording(\'' + s.hash + '\',this)">' + recOpts + '</select>' + autoNote +
+      (s.meta && s.meta.wav ? '<audio id="wav-' + s.slot + '" preload="none" src="' + attr(audioUrl(s.meta.wav, wavRoot)) + '"></audio>' : '') +
       '<div class="lbl">tags</div>' +
       '<input type="text" style="width:100%" placeholder="handpan, ambient, wip…" value="' + attr(s.meta && s.meta.tags || '') + '" ' +
         'onchange="saveMeta(\'' + s.hash + '\',{tags:this.value})">' +
@@ -465,6 +468,10 @@ async function saveMeta(hash, fields) {
   const s = STATE.slots.find(x => x.hash === hash);
   if (s) s.meta = { ...(s.meta || {}), ...fields };
   render();
+}
+function setRecording(hash, select) {
+  const option = select.selectedOptions[0];
+  saveMeta(hash, { wav: option.dataset.path, wavRoot: option.dataset.root, wavMatch: 'manual' });
 }
 async function setKit(hash, track, val) {
   const s = STATE.slots.find(x => x.hash === hash);
@@ -557,7 +564,7 @@ function toggleWav(slot) {
     const s = STATE.slots.find(x => x.slot === slot);
     el = document.createElement('audio');
     el.id = 'wav-' + slot;
-    el.src = '/audio?path=' + encodeURIComponent(s.meta.wav);
+    el.src = audioUrl(s.meta.wav, s.meta.wavRoot);
     el.style.display = 'none';
     document.body.appendChild(el);
     el.onended = () => document.getElementById('wavbtn-' + slot) && document.getElementById('wavbtn-' + slot).classList.remove('playing');
