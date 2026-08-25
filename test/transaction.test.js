@@ -147,6 +147,25 @@ test('deep archive verifies every stored sample-pack byte', t => {
   }), error => error.code === 'ARCHIVE_MANIFEST_MISMATCH');
   assert.deepEqual(visibleBundles(changed.libraryRoot), []);
   assert.equal(subject.scanDrafts(changed.libraryRoot)[0].errorCode, 'ARCHIVE_MANIFEST_MISMATCH');
+
+  const missing = tempRoots(t);
+  fs.rmdirSync(path.join(missing.sourceRoot, 'samplepacks'));
+  assert.throws(() => subject.archiveCapturedProject(subject.captureSource(1, missing.source), {
+    libraryRoot: missing.libraryRoot,
+    name: 'Missing packs',
+    deep: true,
+  }), error => error.code === 'SOURCE_UNAVAILABLE');
+  assert.deepEqual(visibleBundles(missing.libraryRoot), []);
+
+  const empty = tempRoots(t);
+  const emptyResult = subject.archiveCapturedProject(subject.captureSource(1, empty.source), {
+    libraryRoot: empty.libraryRoot,
+    name: 'Empty packs',
+    deep: true,
+  });
+  const emptyBundle = path.join(empty.libraryRoot, emptyResult.file);
+  fs.rmdirSync(path.join(emptyBundle, 'samplepacks'));
+  assert.equal(subject.scanLibrary({ songs: {} }, empty.libraryRoot, null)[0].verified, false);
 });
 
 test('binary bytes and undersized input never publish an invalid archive', t => {

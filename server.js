@@ -227,10 +227,11 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
           try { info = JSON.parse(fs.readFileSync(path.join(full, 'info.json'), 'utf8')); } catch {}
           const parsed = parseProject(buf);
           const evidence = info.verification || {};
+          const storedPacks = path.join(full, 'samplepacks');
           const verified = evidence.verified === true
             && evidence.bytes === buf.length
             && evidence.sha256 === sha256(buf)
-            && (info.deep !== true || manifestMatches(path.join(full, 'samplepacks'), info.manifest));
+            && (info.deep !== true || (fs.existsSync(storedPacks) && manifestMatches(storedPacks, info.manifest)));
           items.push({
             file: f, bundle: true, auto, hash: hashFile(buf),
             modified: st.mtime, tempo: parsed.tempo, usedPatterns: parsed.usedPatterns,
@@ -560,10 +561,14 @@ function archiveCapturedProject(captured, options) {
     const storedPath = path.join(draft, 'song.opz');
     fs.writeFileSync(storedPath, captured.buffer, { flush: true });
     let manifest = null;
+    let samplepacks = null;
     if (options.deep) {
       assertCapturedSource(captured);
-      const samplepacks = path.join(captured.root, 'samplepacks');
-      manifest = fs.existsSync(samplepacks) ? copyDir(samplepacks, path.join(draft, 'samplepacks')) : [];
+      try {
+        samplepacks = fs.realpathSync(path.join(captured.root, 'samplepacks'));
+        if (!fs.statSync(samplepacks).isDirectory()) throw new Error('not a directory');
+      } catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured sample packs are unavailable.'); }
+      manifest = copyDir(samplepacks, path.join(draft, 'samplepacks'));
       assertCapturedSource(captured);
     }
     if (typeof options.beforeVerify === 'function') options.beforeVerify(storedPath, draft);
@@ -574,8 +579,9 @@ function archiveCapturedProject(captured, options) {
     try { parseProject(stored); }
     catch (error) { throw archiveError('ARCHIVE_PARSE_FAILED', error.message); }
     assertCapturedSource(captured);
-    if (options.deep && (!manifestMatches(path.join(draft, 'samplepacks'), manifest)
-        || !manifestMatches(path.join(captured.root, 'samplepacks'), manifest))) {
+    const storedPacks = path.join(draft, 'samplepacks');
+    if (options.deep && (!fs.existsSync(storedPacks) || !manifestMatches(storedPacks, manifest)
+        || !manifestMatches(samplepacks, manifest))) {
       throw archiveError('ARCHIVE_MANIFEST_MISMATCH', 'Stored sample packs do not match the captured source.');
     }
     const instruments = options.deep ? instrumentsSummary({ root: draft }) : null;
@@ -636,7 +642,8 @@ function findBundle(file, auto, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
     info = JSON.parse(fs.readFileSync(resolveChild(dir, 'info.json'), 'utf8'));
     const evidence = info.verification || {};
     if (evidence.verified !== true || evidence.bytes !== stored.length || evidence.sha256 !== sha256(stored)
-        || (info.deep === true && !manifestMatches(path.join(dir, 'samplepacks'), info.manifest))) {
+        || (info.deep === true && (!fs.existsSync(path.join(dir, 'samplepacks'))
+          || !manifestMatches(path.join(dir, 'samplepacks'), info.manifest)))) {
       throw new Error('verification mismatch');
     }
     return { dir, opz, bundle: true, buffer: stored };
