@@ -259,7 +259,7 @@ test('request boundary rejects forged and malformed mutation requests', async t 
     [{ body: valid, headers: { 'Content-Type': 'application/json' } }, 403, 'MUTATION_HEADER_REQUIRED'],
     [{ body: valid, headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1', 'Sec-Fetch-Site': 'cross-site' } }, 403, 'CROSS_SITE_REQUEST'],
     [{ body: valid, headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1', Origin: 'http://example.test' } }, 403, 'ORIGIN_MISMATCH'],
-    [{ body: valid, headers: { Host: 'attacker.example', Origin: 'http://attacker.example', 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } }, 403, 'ORIGIN_MISMATCH'],
+    [{ body: valid, headers: { Host: 'attacker.example', Origin: 'http://attacker.example', 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } }, 403, 'HOST_MISMATCH'],
     [{ body: valid, headers: { 'Content-Type': 'application/json; charset=iso-8859-1', 'X-OPZ-Mutation': '1' } }, 415, 'UNSUPPORTED_ENCODING'],
     [{ body: '{', headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } }, 400, 'INVALID_JSON'],
   ];
@@ -325,9 +325,14 @@ test('metadata boundary rejects unsupported shapes and normalizes invalid persis
 });
 
 test('audio rejects invalid ranges without crashing the server', async t => {
+  const roots = tempRoots(t);
+  const audioFile = path.join(roots.sourceRoot, 'bounces', 'range.wav');
+  fs.mkdirSync(path.dirname(audioFile));
+  fs.writeFileSync(audioFile, Buffer.alloc(100));
+  useFixtureSource(t, roots.sourceRoot);
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
-  const audioPath = '/audio?path=' + encodeURIComponent('opzgui/opzdisk/projects/project01.opz');
+  const audioPath = '/audio?root=device&path=' + encodeURIComponent('bounces/range.wav');
   const invalid = await request(subject.server, audioPath, { raw: true, headers: { Range: 'bytes=999999999999-' } });
   assert.equal(invalid.status, 416);
   assert.match(invalid.headers['content-range'], /^bytes \*\/\d+$/);
@@ -336,6 +341,33 @@ test('audio rejects invalid ranges without crashing the server', async t => {
 
   const state = await requestJson(subject.server, '/api/state');
   assert.equal(state.status, 200);
+});
+
+test('GET routes and audio stay inside loopback recording roots', async t => {
+  const roots = tempRoots(t);
+  const outside = path.join(path.dirname(roots.sourceRoot), 'outside.wav');
+  const bounces = path.join(roots.sourceRoot, 'bounces');
+  fs.mkdirSync(bounces);
+  fs.writeFileSync(outside, Buffer.from('outside'));
+  fs.symlinkSync(outside, path.join(bounces, 'escape.wav'));
+  useFixtureSource(t, roots.sourceRoot);
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => {
+    delete subject.testHooks.sourceResolver;
+    if (subject.server.listening) subject.server.close();
+  });
+
+  const hostile = await request(subject.server, '/api/state', { headers: { Host: 'attacker.example' } });
+  assert.equal(hostile.status, 403);
+  assert.equal(hostile.body.code, 'HOST_MISMATCH');
+  const settings = await request(subject.server, '/audio?path=' + encodeURIComponent('opzgui/data/settings.json'), { raw: true });
+  assert.equal(settings.status, 403);
+  const escaped = await request(subject.server, '/audio?root=device&path=' + encodeURIComponent('bounces/escape.wav'), { raw: true });
+  assert.equal(escaped.status, 403);
+
+  subject.testHooks.sourceResolver = () => null;
+  const disconnected = await request(subject.server, '/audio?root=device&path=' + encodeURIComponent('bounces/escape.wav'), { raw: true });
+  assert.equal(disconnected.status, 404);
 });
 
 test('mounted recordings preserve device identity and play from the device root', async t => {

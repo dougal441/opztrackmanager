@@ -379,6 +379,14 @@ function archiveError(code, message) {
   return transactionError(code, message,
     'Archive verification failed. The source was not changed. Review the retained failed draft, then refresh and retry.');
 }
+function requireLoopbackHost(req) {
+  const port = req.socket.localPort;
+  const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
+  if (!allowedHosts.has(String(req.headers.host || '').toLowerCase())) {
+    throw requestError(403, 'HOST_MISMATCH', 'Request host does not match this server.');
+  }
+  return allowedHosts;
+}
 function requireMutationRequest(req) {
   const contentType = String(req.headers['content-type'] || '');
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
@@ -394,11 +402,7 @@ function requireMutationRequest(req) {
   if (req.headers['sec-fetch-site'] === 'cross-site') {
     throw requestError(403, 'CROSS_SITE_REQUEST', 'Cross-site mutation requests are not allowed.');
   }
-  const port = req.socket.localPort;
-  const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
-  if (!allowedHosts.has(String(req.headers.host || '').toLowerCase())) {
-    throw requestError(403, 'ORIGIN_MISMATCH', 'Mutation request origin does not match this server.');
-  }
+  const allowedHosts = requireLoopbackHost(req);
   if (req.headers.origin) {
     let origin;
     try { origin = new URL(req.headers.origin); }
@@ -702,6 +706,7 @@ const server = http.createServer(async (req, res) => {
     let url;
     try { url = new URL(req.url, 'http://x'); }
     catch { throw requestError(400, 'INVALID_URL', 'Request URL is invalid.'); }
+    requireLoopbackHost(req);
     const p = url.pathname;
     if (req.method === 'POST') requireMutationRequest(req);
     if (req.method === 'POST' && unavailableMutationGuidance[p]) {
@@ -836,11 +841,28 @@ const server = http.createServer(async (req, res) => {
       const rel = url.searchParams.get('path') || '';
       const rootParam = url.searchParams.get('root');
       let base = MUSIC_DIR;
-      if (rootParam === 'device') { const src = getSource(); if (src && src.device) base = src.root; }
-      const full = path.join(base, rel);
-      if (!full.startsWith(base) || rel.includes('..')) { res.writeHead(403); return res.end(); }
-      if (!fs.existsSync(full)) { res.writeHead(404); return res.end(); }
+      let roots = [path.join(MUSIC_DIR, 'OP-Z songs'), path.join(ROOT, 'bounces'), path.join(MUSIC_DIR, 'FlowStudio', 'Recordings')];
+      if (rootParam === 'device') {
+        const src = (testHooks.sourceResolver || getSource)();
+        if (!src || !src.device) { res.writeHead(404); return res.end(); }
+        base = src.root;
+        roots = [path.join(src.root, 'bounces')];
+      } else if (rootParam && rootParam !== 'music') { res.writeHead(403); return res.end(); }
+      let full;
+      try { full = fs.realpathSync(path.resolve(base, rel)); }
+      catch { res.writeHead(404); return res.end(); }
       const ext = path.extname(full).toLowerCase();
+      const allowedRoots = [];
+      for (const root of roots) {
+        try { allowedRoots.push(fs.realpathSync(root)); } catch {}
+      }
+      const isChildPath = root => {
+        const relative = path.relative(root, full);
+        return !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+      };
+      if (!new Set(['.wav', '.aif', '.aiff', '.mp3', '.m4a']).has(ext) || !allowedRoots.some(isChildPath)) {
+        res.writeHead(403); return res.end();
+      }
       const stat = fs.statSync(full);
       const range = req.headers.range;
       if (range) {
