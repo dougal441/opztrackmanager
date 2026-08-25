@@ -261,6 +261,21 @@ test('audio rejects invalid ranges without crashing the server', async t => {
   assert.equal(state.status, 200);
 });
 
+test('settings response never exposes the stored token', async t => {
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  const response = await request(subject.server, '/api/settings', { raw: true });
+  const result = { status: response.status, body: JSON.parse(response.body) };
+  assert.equal(result.status, 200);
+  assert.equal(response.headers['cache-control'], 'no-store');
+  assert.equal(Object.hasOwn(result.body, 'op1funToken'), false);
+  assert.equal(typeof result.body.hasOp1funToken, 'boolean');
+
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /type="password" id="op1token"/);
+  assert.doesNotMatch(html, /SETTINGS\.op1funToken/);
+});
+
 test('bundle containment rejects path escapes and unverified items', t => {
   const { libraryRoot } = tempRoots(t);
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-outside-'));

@@ -309,7 +309,10 @@ function scanRecordings() {
 }
 
 // ---------- helpers ----------
-function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); }
+function json(res, code, obj, headers) {
+  res.writeHead(code, { 'Content-Type': 'application/json', ...(headers || {}) });
+  res.end(JSON.stringify(obj));
+}
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -739,8 +742,12 @@ const server = http.createServer(async (req, res) => {
 
     // ---- settings ----
     if (p === '/api/settings' && req.method === 'GET') {
-      try { return json(res, 200, JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'))); }
-      catch { return json(res, 200, {}); }
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
+      return json(res, 200, {
+        op1funEmail: typeof settings.op1funEmail === 'string' ? settings.op1funEmail : '',
+        hasOp1funToken: typeof settings.op1funToken === 'string' && settings.op1funToken.length > 0,
+      }, { 'Cache-Control': 'no-store' });
     }
     if (p === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
@@ -752,7 +759,7 @@ const server = http.createServer(async (req, res) => {
       if ('op1funToken' in body) validateString(body.op1funToken, 'op1funToken', 1000);
       let cur = {}; try { cur = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
       fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...cur, ...body }, null, 2));
-      return json(res, 200, { ok: true });
+      return json(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
     }
 
     // ---- op1.fun pack browser ----
