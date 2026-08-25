@@ -37,6 +37,15 @@ function visibleBundles(libraryRoot) {
   return fs.readdirSync(libraryRoot).filter(name => !name.startsWith('.'));
 }
 
+function useFixtureSource(t, sourceRoot) {
+  const previous = process.env.OPZ_ROOT;
+  process.env.OPZ_ROOT = sourceRoot;
+  t.after(() => {
+    if (previous === undefined) delete process.env.OPZ_ROOT;
+    else process.env.OPZ_ROOT = previous;
+  });
+}
+
 function request(server, pathname, options = {}) {
   const address = server.address();
   return new Promise((resolve, reject) => {
@@ -289,6 +298,7 @@ test('mutation conflict rejects before resolver work and releases after success 
 
 test('guard before capture rejects an HTTP competitor with zero source work', async t => {
   const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
   let release;
   let entered;
   const barrier = new Promise(resolve => { release = resolve; });
@@ -353,6 +363,8 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
 });
 
 test('state reports sanitized active mutation and separate drafts', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
   let release;
   let started;
   const barrier = new Promise(resolve => { release = resolve; });
