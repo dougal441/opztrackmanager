@@ -20,10 +20,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-20)
+See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** Dougal can free an OP-Z slot knowing the complete song can be verified and restored later.
-**Current focus:** Phase 01 — Verified Transaction Foundation
+**Current focus:** Phase 2 — Verified Archive Shelf & Manual Freeing
 
 ## Current Position
 
@@ -32,7 +32,7 @@ Plan: Not started
 Status: Ready to plan
 Last activity: 2026-08-26 — Phase 01 complete, transitioned to Phase 2
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████████████████] 3/3 plans (100%)
 
 ## Performance Metrics
 
@@ -67,18 +67,11 @@ Progress: [░░░░░░░░░░] 0%
 
 Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecting current work:
 
-- Phase 1: One captured source and verified transaction evidence are the shared safety boundary for destructive operations.
-- Phase 5: Synthesized split halves remain restore-ineligible until their recorded sacrificial-device acceptance check passes.
-- Phase 6: Automatic clearing remains disabled until one specific method passes both fixture and sacrificial-device checks; manual device clearing is the fallback.
-- [Phase 01]: Failed archive drafts live under library/.failed with sanitized failure.json evidence and never enter library results.
-- [Phase 01]: Library items are verified only when SHA-256 and byte length match the reread parsable song.opz; legacy items remain visible but unverified.
-- [Phase 01]: The mutation callback receives sanitized state so active source facts can be reported without exposing captured paths or bytes.
-- [Phase 01]: Every POST passes one JSON, mutation-header, Fetch Metadata, and Origin/Host check before route dispatch.
-- [Phase 01]: Bundle selection requires a canonical contained directory whose reread bytes parse and match SHA-256/length evidence.
-- [Phase 01]: Restore, swap, clear, instrument writes, and pack installation remain explicit 409 fences until their recovery-owning phases.
-- [Phase 01]: Mutation buttons use one semantic contract: archive is enabled when idle, while later-phase writes remain natively disabled.
-- [Phase 01]: Only server-verified library items receive restore eligibility; all other archives and drafts remain diagnostic-only.
-- [Phase 01]: Mounted acceptance uses only GET state and POST archive through an ephemeral loopback server; no device-writing route is exercised.
+- Phase 1: One captured source identity and immutable byte buffer define the transaction boundary; source loss stops without fallback substitution.
+- Phase 1: Archives publish only after atomic reread, byte comparison, parse, SHA-256/length evidence, and final source revalidation.
+- Phase 1: Failed or corrupt archives remain visible only as sanitized, restore-ineligible diagnostics.
+- Phase 5: Synthesized split halves remain restore-ineligible until their recorded device acceptance check passes.
+- Phase 6: Automatic clearing remains disabled until one method passes fixture and device checks; manual clearing remains the fallback.
 
 ### Pending Todos
 
@@ -98,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-25T13:13:00.289Z
+Last session: 2026-08-26T00:26:48+10:00
 Stopped at: Phase 01 complete, ready to plan Phase 2
 Resume file: None

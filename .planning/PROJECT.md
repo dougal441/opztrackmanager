@@ -71,7 +71,9 @@ Split detection can reuse existing parsed pattern occupancy, chains, track profi
 | Key metadata by project-content hash | Names and notes follow exact song bytes across slot moves and restores | ⚠ Revisit for edited descendants |
 | Store library items as bundle directories | A song needs project bytes plus metadata and instrument context | ✓ Good |
 | Back up before every destructive mutation | Recoverability is the product's central promise | ✓ Good |
-| Treat archive verification as a product feature | Confidence requires evidence, not a successful copy call | — Pending |
+| Treat archive verification as a product feature | Confidence requires evidence, not a successful copy call | ✓ Good — Phase 1 |
+| Pin source identity and bytes for every mutation | A disappearing OP-Z must stop the transaction, never trigger fallback substitution | ✓ Good — Phase 1 |
+| Publish archives only after atomic stored-byte verification | Hidden drafts and sanitized diagnostics preserve truthful recovery status | ✓ Good — Phase 1 |
 | Require user confirmation for split detection | Pattern clustering is heuristic and must not silently reinterpret songs | — Pending |
 | Validate clearing and synthesized projects on real hardware | Filesystem behavior and firmware acceptance cannot be assumed | — Pending |
 
@@ -93,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-20 after initialization*
+*Last updated: 2026-08-26 after Phase 1*
