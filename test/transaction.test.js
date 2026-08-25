@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const { parseProject } = require('../parser.js');
@@ -75,6 +76,16 @@ function request(server, pathname, options = {}) {
 
 function requestJson(server, pathname, payload) {
   return request(server, pathname, payload === undefined ? {} : { payload });
+}
+
+function rawRequest(server, message) {
+  return new Promise((resolve, reject) => {
+    let response = '';
+    const socket = net.createConnection(server.address().port, '127.0.0.1', () => socket.end(message));
+    socket.on('data', chunk => response += chunk);
+    socket.on('end', () => resolve(response));
+    socket.on('error', reject);
+  });
 }
 
 test('verified archive tracer publishes reread, parsed bytes with evidence', t => {
@@ -297,6 +308,15 @@ test('audio rejects invalid ranges without crashing the server', async t => {
 
   const state = await requestJson(subject.server, '/api/state');
   assert.equal(state.status, 200);
+});
+
+test('malformed request target returns 400 without crashing the server', async t => {
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  const response = await rawRequest(subject.server, 'GET http://[ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+  assert.match(response, /^HTTP\/1\.1 400 /);
+  assert.match(response, /"code":"INVALID_URL"/);
+  assert.equal((await requestJson(subject.server, '/api/state')).status, 200);
 });
 
 test('settings response never exposes the stored token', async t => {

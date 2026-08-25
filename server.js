@@ -684,9 +684,11 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.svg': 'image/svg+xml' };
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x');
-  const p = url.pathname;
   try {
+    let url;
+    try { url = new URL(req.url, 'http://x'); }
+    catch { throw requestError(400, 'INVALID_URL', 'Request URL is invalid.'); }
+    const p = url.pathname;
     if (req.method === 'POST') requireMutationRequest(req);
     if (req.method === 'POST' && unavailableMutationGuidance[p]) {
       throw requestError(409, 'PHASE_UNAVAILABLE', 'This write is not available yet.', unavailableMutationGuidance[p]);
