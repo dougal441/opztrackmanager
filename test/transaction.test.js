@@ -37,17 +37,26 @@ function visibleBundles(libraryRoot) {
   return fs.readdirSync(libraryRoot).filter(name => !name.startsWith('.'));
 }
 
-function requestJson(server, pathname) {
+function requestJson(server, pathname, payload) {
   const address = server.address();
   return new Promise((resolve, reject) => {
-    http.get({ host: '127.0.0.1', port: address.port, path: pathname }, res => {
+    const body = payload && JSON.stringify(payload);
+    const req = http.request({
+      host: '127.0.0.1',
+      port: address.port,
+      path: pathname,
+      method: body ? 'POST' : 'GET',
+      headers: body ? { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } : {},
+    }, res => {
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         try { resolve({ status: res.statusCode, body: JSON.parse(body) }); }
         catch (error) { reject(error); }
       });
-    }).on('error', reject);
+    });
+    req.on('error', reject);
+    req.end(body);
   });
 }
 
@@ -71,6 +80,11 @@ test('verified archive tracer publishes reread, parsed bytes with evidence', t =
   assert.equal(info.verification.sha256, crypto.createHash('sha256').update(stored).digest('hex'));
   assert.equal(info.verification.bytes, stored.length);
   assert.equal(info.verification.verified, true);
+  assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, true);
+
+  info.verification.sha256 = '0'.repeat(64);
+  fs.writeFileSync(path.join(bundle, 'info.json'), JSON.stringify(info));
+  assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, false);
 });
 
 test('binary bytes and undersized input never publish an invalid archive', t => {
@@ -211,6 +225,9 @@ test('state reports sanitized active mutation and separate drafts', async t => {
   assert.ok(Array.isArray(result.body.drafts));
   assert.ok(!JSON.stringify(result.body).includes(process.cwd()));
   assert.ok(!JSON.stringify(result.body).includes('/Volumes/'));
+  const conflict = await requestJson(subject.server, '/api/backup', { slot: 1, name: '', deep: false });
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.code, 'MUTATION_CONFLICT');
 
   release();
   await active;

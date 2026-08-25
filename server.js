@@ -146,10 +146,11 @@ function copyDir(from, to) {
 
 // ---------- library (bundles) ----------
 // Bundle = folder in library/: song.opz + info.json + optional samplepacks/
-function scanLibrary(meta) {
+function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   const items = [];
   const scanDir = (dir, auto) => {
     for (const f of fs.readdirSync(dir)) {
+      if (f.startsWith('.')) continue;
       const full = path.join(dir, f);
       try {
         const st = fs.statSync(full);
@@ -158,12 +159,17 @@ function scanLibrary(meta) {
           let info = {};
           try { info = JSON.parse(fs.readFileSync(path.join(full, 'info.json'), 'utf8')); } catch {}
           const parsed = parseProject(buf);
+          const evidence = info.verification || {};
+          const verified = evidence.verified === true
+            && evidence.bytes === buf.length
+            && evidence.sha256 === sha256(buf);
           items.push({
             file: f, bundle: true, auto, hash: hashFile(buf),
             modified: st.mtime, tempo: parsed.tempo, usedPatterns: parsed.usedPatterns,
             name: info.name, fromSlot: info.fromSlot,
             hasInstruments: fs.existsSync(path.join(full, 'samplepacks')),
             instruments: info.instruments || null,
+            verified,
             meta: meta.songs[hashFile(buf)] || null,
           });
         } else if (f.endsWith('.opz')) { // legacy flat file
@@ -172,16 +178,52 @@ function scanLibrary(meta) {
           items.push({
             file: f, bundle: false, auto, hash: hashFile(buf),
             modified: st.mtime, tempo: parsed.tempo, usedPatterns: parsed.usedPatterns,
+            verified: false,
             meta: meta.songs[hashFile(buf)] || null,
           });
         }
       } catch {}
     }
   };
-  scanDir(LIB_DIR, false);
-  if (fs.existsSync(AUTO_DIR)) scanDir(AUTO_DIR, true);
+  scanDir(libraryRoot, false);
+  if (autoRoot && fs.existsSync(autoRoot)) scanDir(autoRoot, true);
   items.sort((a, b) => new Date(b.modified) - new Date(a.modified));
   return items;
+}
+
+function scanDrafts(libraryRoot = LIB_DIR) {
+  const drafts = [];
+  const add = (dir, id) => {
+    try {
+      let diagnostic = {};
+      try { diagnostic = JSON.parse(fs.readFileSync(path.join(dir, 'failure.json'), 'utf8')); } catch {}
+      const source = diagnostic.source && typeof diagnostic.source === 'object' ? {
+        device: diagnostic.source.device === true,
+        label: String(diagnostic.source.label || 'unknown source').slice(0, 80),
+        slot: Number.isInteger(diagnostic.source.slot) ? diagnostic.source.slot : null,
+      } : null;
+      drafts.push({
+        id,
+        verified: false,
+        operation: String(diagnostic.operation || 'archive').slice(0, 120),
+        source,
+        slot: Number.isInteger(diagnostic.slot) ? diagnostic.slot : null,
+        time: diagnostic.time || fs.statSync(dir).mtime.toISOString(),
+        errorCode: /^[A-Z0-9_]+$/.test(diagnostic.errorCode || '') ? diagnostic.errorCode : 'ARCHIVE_INCOMPLETE',
+      });
+    } catch {}
+  };
+  try {
+    for (const name of fs.readdirSync(libraryRoot)) {
+      if (name.startsWith('.partial-')) add(path.join(libraryRoot, name), name);
+    }
+    const failedRoot = path.join(libraryRoot, '.failed');
+    if (fs.existsSync(failedRoot)) {
+      for (const name of fs.readdirSync(failedRoot)) add(path.join(failedRoot, name), name);
+    }
+  } catch {}
+  drafts.sort((a, b) => new Date(b.time) - new Date(a.time));
+  return drafts;
 }
 
 function instrumentsSummary(source) {
@@ -234,6 +276,21 @@ function readBody(req) {
 function safeName(s) { return (s || 'untitled').replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 60) || 'untitled'; }
 function stamp() { return new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19); }
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
+function transactionError(code, message, guidance, status) {
+  const error = new Error(message);
+  error.code = code;
+  error.guidance = guidance;
+  if (status) error.status = status;
+  return error;
+}
+function sourceError(code, message) {
+  return transactionError(code, message,
+    'The captured source changed or disconnected. Reconnect the original source, refresh, and retry. No source data was changed.');
+}
+function archiveError(code, message) {
+  return transactionError(code, message,
+    'Archive verification failed. The source was not changed. Review the retained failed draft, then refresh and retry.');
+}
 function validSlot(slot) {
   if (!Number.isInteger(slot) || slot < 1 || slot > 10) throw new Error('slot must be an integer from 1 to 10');
   return slot;
@@ -279,21 +336,45 @@ function captureSource(slot, source) {
 function assertCapturedSource(captured) {
   let root;
   try { root = fs.realpathSync(captured.root); }
-  catch { throw new Error('captured source is no longer available'); }
-  const rootStat = fs.statSync(root, { bigint: true });
+  catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured source is no longer available.'); }
+  let rootStat;
+  try { rootStat = fs.statSync(root, { bigint: true }); }
+  catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured source is no longer available.'); }
   if (root !== captured.root || String(rootStat.dev) !== captured.rootDevice || String(rootStat.ino) !== captured.rootInode) {
-    throw new Error('captured source was replaced');
+    throw sourceError('SOURCE_REPLACED', 'Captured source was replaced.');
   }
   let current;
   try { current = fs.readFileSync(captured.projectPath); }
-  catch { throw new Error('captured project is no longer available'); }
-  if (current.length !== captured.bytes || sha256(current) !== captured.sha256) throw new Error('captured project changed');
+  catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured project is no longer available.'); }
+  if (current.length !== captured.bytes || sha256(current) !== captured.sha256) {
+    throw sourceError('SOURCE_CHANGED', 'Captured project changed.');
+  }
 }
 async function withMutation(operation, callback) {
-  if (activeMutation) throw new Error('another mutation is already running');
-  activeMutation = { operation, started: new Date().toISOString(), source: null };
-  try { return await callback(); }
+  if (activeMutation) {
+    throw transactionError('MUTATION_CONFLICT', 'Another mutation is already running.',
+      'Wait for the current operation to finish, then refresh and retry.', 409);
+  }
+  const mutation = { operation: String(operation).slice(0, 120), started: new Date().toISOString(), source: null };
+  activeMutation = mutation;
+  try { return await callback(mutation); }
   finally { activeMutation = null; }
+}
+function retainFailedDraft(draft, libraryRoot, captured, operation, error) {
+  const diagnostic = {
+    operation: operation || `archive slot ${captured.slot}`,
+    source: publicSource(captured),
+    slot: captured.slot,
+    time: new Date().toISOString(),
+    errorCode: error.code || 'ARCHIVE_FAILED',
+    verified: false,
+  };
+  try { fs.writeFileSync(path.join(draft, 'failure.json'), JSON.stringify(diagnostic, null, 2), { flush: true }); } catch {}
+  try {
+    const failedRoot = path.join(libraryRoot, '.failed');
+    fs.mkdirSync(failedRoot, { recursive: true });
+    fs.renameSync(draft, path.join(failedRoot, path.basename(draft)));
+  } catch {}
 }
 function archiveCapturedProject(captured, options) {
   const libraryRoot = fs.realpathSync(options.libraryRoot);
@@ -308,15 +389,22 @@ function archiveCapturedProject(captured, options) {
       if (fs.existsSync(samplepacks)) copyDir(samplepacks, path.join(draft, 'samplepacks'));
       assertCapturedSource(captured);
     }
+    if (typeof options.beforeVerify === 'function') options.beforeVerify(storedPath, draft);
     const stored = fs.readFileSync(storedPath);
-    if (stored.length !== captured.bytes || !stored.equals(captured.buffer)) throw new Error('stored project does not match captured source');
-    parseProject(stored);
+    if (stored.length !== captured.bytes || !stored.equals(captured.buffer)) {
+      throw archiveError('ARCHIVE_BYTES_MISMATCH', 'Stored project does not match the captured source.');
+    }
+    try { parseProject(stored); }
+    catch (error) { throw archiveError('ARCHIVE_PARSE_FAILED', error.message); }
+    assertCapturedSource(captured);
+    const instruments = instrumentsSummary(captured);
+    assertCapturedSource(captured);
     const verification = { verified: true, sha256: sha256(stored), bytes: stored.length, checked: new Date().toISOString() };
     const info = {
       name,
       fromSlot: captured.slot,
       created: new Date().toISOString(),
-      instruments: instrumentsSummary(captured),
+      instruments,
       deep: options.deep,
       verification,
     };
@@ -326,7 +414,11 @@ function archiveCapturedProject(captured, options) {
     fs.renameSync(draft, path.join(libraryRoot, finalName));
     return { ok: true, verified: true, file: finalName, source: publicSource(captured), evidence: verification, guidance: sourceGuidance(captured) };
   } catch (error) {
-    throw error;
+    const failure = /^(SOURCE_|ARCHIVE_)/.test(error.code || '')
+      ? error
+      : archiveError('ARCHIVE_FAILED', 'Archive could not be verified.');
+    retainFailedDraft(draft, libraryRoot, captured, options.operation, failure);
+    throw failure;
   }
 }
 function projFile(slot) {
@@ -347,7 +439,9 @@ function autoBackupSlot(slot, meta) {
   return path.basename(dir);
 }
 function findBundle(file, auto) {
-  const dir = path.join(auto ? AUTO_DIR : LIB_DIR, path.basename(file));
+  const id = path.basename(file);
+  if (id.startsWith('.')) throw new Error('library item not found');
+  const dir = path.join(auto ? AUTO_DIR : LIB_DIR, id);
   if (fs.existsSync(path.join(dir, 'song.opz'))) return { dir, opz: path.join(dir, 'song.opz'), bundle: true };
   if (fs.existsSync(dir) && dir.endsWith('.opz')) return { dir: null, opz: dir, bundle: false };
   throw new Error('library item not found');
@@ -420,6 +514,7 @@ const server = http.createServer(async (req, res) => {
         recordings: scanRecordings(),
         instruments: scanInstruments(),
         mutation: activeMutation,
+        drafts: scanDrafts(),
       });
     }
     if (p === '/api/pattern') {
@@ -443,15 +538,20 @@ const server = http.createServer(async (req, res) => {
         return json(res, 403, { error: 'archive request requires JSON and X-OPZ-Mutation' });
       }
       const body = validateBackup(await readBody(req));
-      return withMutation(`archive slot ${body.slot}`, async () => {
+      return await withMutation(`archive slot ${body.slot}`, async mutation => {
         const meta = loadMeta();
         const source = getSource();
         if (!source) throw new Error('no source');
         const captured = captureSource(body.slot, source);
-        activeMutation.source = publicSource(captured);
+        mutation.source = publicSource(captured);
         const hash = hashFile(captured.buffer);
         const name = body.name || (meta.songs[hash] && meta.songs[hash].name) || `slot${body.slot}`;
-        const result = archiveCapturedProject(captured, { libraryRoot: LIB_DIR, name, deep: body.deep });
+        const result = archiveCapturedProject(captured, {
+          libraryRoot: LIB_DIR,
+          name,
+          deep: body.deep,
+          operation: mutation.operation,
+        });
         if (body.name) { meta.songs[hash] = { ...(meta.songs[hash] || {}), name: body.name }; saveMeta(meta); }
         return json(res, 200, result);
       });
@@ -642,7 +742,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'text/plain' });
     return fs.createReadStream(full).pipe(res);
   } catch (e) {
-    return json(res, 500, { error: e.message });
+    const safe = /^(SOURCE_|ARCHIVE_|MUTATION_)/.test(e.code || '')
+      ? { error: e.message, code: e.code, guidance: e.guidance }
+      : { error: 'Operation failed safely.', code: 'OPERATION_FAILED', guidance: 'Refresh and retry. If the source disconnected, reconnect it first.' };
+    return json(res, e.status || 500, safe);
   }
 });
 
@@ -658,4 +761,12 @@ if (require.main === module) {
   });
 }
 
-module.exports = { captureSource, assertCapturedSource, withMutation, archiveCapturedProject, server };
+module.exports = {
+  captureSource,
+  assertCapturedSource,
+  withMutation,
+  archiveCapturedProject,
+  scanLibrary,
+  scanDrafts,
+  server,
+};
