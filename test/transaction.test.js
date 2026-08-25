@@ -37,6 +37,20 @@ function visibleBundles(libraryRoot) {
   return fs.readdirSync(libraryRoot).filter(name => !name.startsWith('.'));
 }
 
+function requestJson(server, pathname) {
+  const address = server.address();
+  return new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: address.port, path: pathname }, res => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(body) }); }
+        catch (error) { reject(error); }
+      });
+    }).on('error', reject);
+  });
+}
+
 test('verified archive tracer publishes reread, parsed bytes with evidence', t => {
   const fixture = fs.readFileSync(FIXTURE);
   const { source, libraryRoot } = tempRoots(t, fixture);
@@ -87,4 +101,117 @@ test('archive UI sends mutation header and confirms source intent', () => {
   assert.match(html, /Archive slot/);
   assert.match(html, /Device data/);
   assert.match(html, /STATE\.source/);
+});
+
+test('source substitution stops the pinned transaction without resolving a fallback', async t => {
+  const fixture = fs.readFileSync(FIXTURE);
+  const roots = tempRoots(t, fixture);
+  let resolverCalls = 0;
+  const originalRoot = roots.sourceRoot + '-captured';
+
+  await assert.rejects(subject.withMutation('source substitution', async () => {
+    resolverCalls++;
+    const captured = subject.captureSource(1, roots.source);
+    fs.renameSync(roots.sourceRoot, originalRoot);
+    fs.mkdirSync(path.join(roots.sourceRoot, 'projects'), { recursive: true });
+    fs.writeFileSync(path.join(roots.sourceRoot, 'projects', 'project01.opz'), fixture);
+    subject.assertCapturedSource(captured);
+  }), error => error.code === 'SOURCE_REPLACED');
+
+  assert.equal(resolverCalls, 1);
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(originalRoot, 'projects', 'project01.opz'))).digest('hex'),
+    crypto.createHash('sha256').update(fixture).digest('hex'));
+  assert.equal(await subject.withMutation('after source failure', async () => 'released'), 'released');
+});
+
+test('failed draft retains sanitized evidence and never becomes verified', t => {
+  const fixture = fs.readFileSync(FIXTURE);
+  const corrupt = tempRoots(t, fixture);
+  const sourceHash = crypto.createHash('sha256').update(fixture).digest('hex');
+  const captured = subject.captureSource(1, corrupt.source);
+
+  assert.throws(() => subject.archiveCapturedProject(captured, {
+    libraryRoot: corrupt.libraryRoot,
+    name: 'Corrupt stored bytes',
+    deep: false,
+    beforeVerify(storedPath) {
+      const stored = fs.readFileSync(storedPath);
+      stored[0] ^= 0xff;
+      fs.writeFileSync(storedPath, stored);
+    },
+  }), error => error.code === 'ARCHIVE_BYTES_MISMATCH');
+
+  assert.deepEqual(visibleBundles(corrupt.libraryRoot), []);
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(corrupt.sourceRoot, 'projects', 'project01.opz'))).digest('hex'), sourceHash);
+  const drafts = subject.scanDrafts(corrupt.libraryRoot);
+  assert.equal(drafts.length, 1);
+  assert.equal(drafts[0].verified, false);
+  assert.equal(drafts[0].errorCode, 'ARCHIVE_BYTES_MISMATCH');
+  assert.equal(drafts[0].source.label, 'temporary fixture');
+  assert.ok(!JSON.stringify(drafts).includes(corrupt.sourceRoot));
+  assert.deepEqual(subject.scanLibrary({ songs: {} }, corrupt.libraryRoot, null), []);
+
+  const invalid = tempRoots(t, Buffer.from([0, 255, 128]));
+  assert.throws(() => subject.archiveCapturedProject(subject.captureSource(1, invalid.source), {
+    libraryRoot: invalid.libraryRoot,
+    name: 'Parser rejection',
+    deep: false,
+  }), error => error.code === 'ARCHIVE_PARSE_FAILED');
+  assert.equal(subject.scanDrafts(invalid.libraryRoot)[0].errorCode, 'ARCHIVE_PARSE_FAILED');
+  assert.deepEqual(visibleBundles(invalid.libraryRoot), []);
+});
+
+test('mutation conflict rejects before resolver work and releases after success or failure', async () => {
+  let release;
+  let started;
+  const barrier = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { started = resolve; });
+  let resolverCalls = 0;
+  let captureCalls = 0;
+
+  const first = subject.withMutation('held mutation', async () => {
+    resolverCalls++;
+    captureCalls++;
+    started();
+    await barrier;
+    return 'done';
+  });
+  await entered;
+  await assert.rejects(subject.withMutation('competing mutation', async () => {
+    resolverCalls++;
+    captureCalls++;
+  }), error => error.code === 'MUTATION_CONFLICT');
+  assert.equal(resolverCalls, 1);
+  assert.equal(captureCalls, 1);
+  release();
+  assert.equal(await first, 'done');
+
+  await assert.rejects(subject.withMutation('failing mutation', async () => { throw new Error('expected'); }), /expected/);
+  assert.equal(await subject.withMutation('after failure', async () => 'released'), 'released');
+});
+
+test('state reports sanitized active mutation and separate drafts', async t => {
+  let release;
+  let started;
+  const barrier = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { started = resolve; });
+  const active = subject.withMutation('archive slot 1', async mutation => {
+    mutation.source = { device: false, label: 'temporary fixture', slot: 1 };
+    started();
+    await barrier;
+  });
+  await entered;
+
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  const result = await requestJson(subject.server, '/api/state');
+  assert.equal(result.status, 200);
+  assert.equal(result.body.mutation.operation, 'archive slot 1');
+  assert.deepEqual(result.body.mutation.source, { device: false, label: 'temporary fixture', slot: 1 });
+  assert.ok(Array.isArray(result.body.drafts));
+  assert.ok(!JSON.stringify(result.body).includes(process.cwd()));
+  assert.ok(!JSON.stringify(result.body).includes('/Volumes/'));
+
+  release();
+  await active;
 });
