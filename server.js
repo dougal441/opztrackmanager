@@ -63,18 +63,39 @@ function loadMeta(file = META_FILE) {
   }
   catch { return { songs: {} }; }
 }
-function saveMeta(meta) { fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2)); }
-function saveSettings(settings, file = SETTINGS_FILE) {
+function loadMetaForUpdate(file = META_FILE) {
+  if (!fs.existsSync(file)) return { songs: {} };
+  try {
+    const meta = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (isPlainObject(meta) && isPlainObject(meta.songs)) return meta;
+  } catch {}
+  throw transactionError('METADATA_UNREADABLE', 'Stored song metadata cannot be safely updated.',
+    'Keep the existing metadata file unchanged, repair or restore it, then retry.', 409);
+}
+function loadSettingsForUpdate(file = SETTINGS_FILE) {
+  if (!fs.existsSync(file)) return {};
+  try {
+    const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (isPlainObject(settings)
+        && Object.keys(settings).every(key => ['op1funEmail', 'op1funToken'].includes(key))
+        && Object.values(settings).every(value => typeof value === 'string')) return settings;
+  } catch {}
+  throw transactionError('SETTINGS_UNREADABLE', 'Stored settings cannot be safely updated.',
+    'Keep the existing settings file unchanged, repair or restore it, then retry.', 409);
+}
+function saveJsonAtomic(file, value, mode) {
   const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}-${crypto.randomBytes(6).toString('hex')}.tmp`);
   try {
-    fs.writeFileSync(temp, JSON.stringify(settings, null, 2), { mode: 0o600, flag: 'wx', flush: true });
+    fs.writeFileSync(temp, JSON.stringify(value, null, 2), { ...(mode ? { mode } : {}), flag: 'wx', flush: true });
+    if (testHooks.beforeJsonRename) testHooks.beforeJsonRename(file, temp);
     fs.renameSync(temp, file);
-    fs.chmodSync(file, 0o600);
   } catch (error) {
     try { fs.unlinkSync(temp); } catch {}
     throw error;
   }
 }
+function saveMeta(meta, file = META_FILE) { saveJsonAtomic(file, meta); }
+function saveSettings(settings, file = SETTINGS_FILE) { saveJsonAtomic(file, settings, 0o600); }
 function hashFile(buf) { return crypto.createHash('md5').update(buf).digest('hex').slice(0, 16); }
 
 // ---------- source detection ----------
@@ -713,7 +734,7 @@ const server = http.createServer(async (req, res) => {
       throw requestError(409, 'PHASE_UNAVAILABLE', 'This write is not available yet.', unavailableMutationGuidance[p]);
     }
     if (p === '/api/state') {
-      const meta = loadMeta();
+      const meta = loadMeta(testHooks.metaFile || META_FILE);
       return json(res, 200, {
         ...scanSlots(meta),
         library: scanLibrary(meta),
@@ -737,9 +758,10 @@ const server = http.createServer(async (req, res) => {
         throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
       }
       validateMetadataFields(body.fields);
-      const meta = loadMeta();
+      const metaFile = testHooks.metaFile || META_FILE;
+      const meta = loadMetaForUpdate(metaFile);
       meta.songs[body.hash] = { ...(meta.songs[body.hash] || {}), ...body.fields, updated: new Date().toISOString() };
-      saveMeta(meta);
+      saveMeta(meta, metaFile);
       return json(res, 200, { ok: true });
     }
 
@@ -806,7 +828,7 @@ const server = http.createServer(async (req, res) => {
     // ---- settings ----
     if (p === '/api/settings' && req.method === 'GET') {
       let settings = {};
-      try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
+      try { settings = JSON.parse(fs.readFileSync(testHooks.settingsFile || SETTINGS_FILE, 'utf8')); } catch {}
       return json(res, 200, {
         op1funEmail: typeof settings.op1funEmail === 'string' ? settings.op1funEmail : '',
         hasOp1funToken: typeof settings.op1funToken === 'string' && settings.op1funToken.length > 0,
@@ -820,8 +842,9 @@ const server = http.createServer(async (req, res) => {
       }
       if ('op1funEmail' in body) validateString(body.op1funEmail, 'op1funEmail', 320);
       if ('op1funToken' in body) validateString(body.op1funToken, 'op1funToken', 1000);
-      let cur = {}; try { cur = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
-      saveSettings({ ...cur, ...body });
+      const settingsFile = testHooks.settingsFile || SETTINGS_FILE;
+      const cur = loadSettingsForUpdate(settingsFile);
+      saveSettings({ ...cur, ...body }, settingsFile);
       return json(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
     }
 
@@ -924,6 +947,9 @@ module.exports = {
   parseByteRange,
   validateMetadataFields,
   loadMeta,
+  loadMetaForUpdate,
+  loadSettingsForUpdate,
+  saveMeta,
   saveSettings,
   resolveChild,
   findBundle,

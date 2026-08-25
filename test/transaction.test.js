@@ -429,6 +429,40 @@ test('settings writes replace atomically with user-only permissions', t => {
   assert.deepEqual(fs.readdirSync(dir), ['settings.json']);
 });
 
+test('JSON updates fail closed and atomic write failure preserves prior data', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-json-'));
+  const metaFile = path.join(dir, 'meta.json');
+  const settingsFile = path.join(dir, 'settings.json');
+  const corruptMeta = '{broken metadata';
+  const corruptSettings = '{broken settings';
+  fs.writeFileSync(metaFile, corruptMeta);
+  fs.writeFileSync(settingsFile, corruptSettings);
+  subject.testHooks.metaFile = metaFile;
+  subject.testHooks.settingsFile = settingsFile;
+  t.after(() => {
+    for (const key of ['metaFile', 'settingsFile', 'beforeJsonRename']) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+
+  const metaResult = await requestJson(subject.server, '/api/meta', { hash: 'a'.repeat(16), fields: { name: 'Keep me' } });
+  assert.equal(metaResult.status, 409);
+  assert.equal(metaResult.body.code, 'METADATA_UNREADABLE');
+  assert.equal(fs.readFileSync(metaFile, 'utf8'), corruptMeta);
+  const settingsResult = await requestJson(subject.server, '/api/settings', { op1funEmail: 'new@example.test' });
+  assert.equal(settingsResult.status, 409);
+  assert.equal(settingsResult.body.code, 'SETTINGS_UNREADABLE');
+  assert.equal(fs.readFileSync(settingsFile, 'utf8'), corruptSettings);
+
+  const prior = { songs: { existing: { name: 'Existing' } } };
+  fs.writeFileSync(metaFile, JSON.stringify(prior));
+  subject.testHooks.beforeJsonRename = () => { throw new Error('injected write failure'); };
+  assert.throws(() => subject.saveMeta({ songs: { replacement: {} } }, metaFile), /injected write failure/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(metaFile, 'utf8')), prior);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['meta.json', 'settings.json']);
+});
+
 test('bundle containment rejects path escapes and unverified items', t => {
   const { libraryRoot } = tempRoots(t);
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-outside-'));
