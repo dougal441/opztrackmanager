@@ -38,12 +38,12 @@ created: 2026-08-25
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 01-W0-01 | TBD | 0 | ARCH-01 | T-01 source substitution | Resolver runs once and the captured bytes/root/device identity remain fixed | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
-| 01-W0-02 | TBD | 0 | ARCH-02 | T-02 false verification | Publication requires reread equality, successful parse, SHA-256, and length evidence | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
-| 01-W0-03 | TBD | 0 | ARCH-04 | T-03 destructive failure | Corruption or parse failure leaves source bytes unchanged and no visible archive | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
-| 01-W0-04 | TBD | 0 | SAFE-01 | T-01 source substitution | A removed or replaced captured root stops without invoking fallback | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
-| 01-W0-05 | TBD | 0 | SAFE-02 | T-04 invalid/concurrent input | Invalid slots, flags, IDs, paths, and concurrent mutations are rejected | unit/integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
-| 01-W0-06 | TBD | 0 | SAFE-03 | T-05 misleading state | API and UI expose captured source, busy state, confirmation, and outcome guidance | HTTP/static + UAT | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
+| 01-W0-01 | 01-01 | 1 | ARCH-01 | T-01 source substitution | Resolver runs once and the captured bytes/root/device identity remain fixed | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
+| 01-W0-02 | 01-01 | 1 | ARCH-02 | T-02 false verification | Publication requires reread equality, successful parse, SHA-256, and length evidence | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
+| 01-W0-03 | 01-01 | 1 | ARCH-04 | T-03 destructive failure | Corruption or parse failure leaves source bytes unchanged and no visible archive | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
+| 01-W0-04 | 01-01 | 1 | SAFE-01 | T-01 source substitution | A removed or replaced captured root stops without invoking fallback | integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
+| 01-W0-05 | 01-02 | 2 | SAFE-02 | T-04 invalid/concurrent input | Invalid slots, flags, IDs, paths, and concurrent mutations are rejected | unit/integration | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
+| 01-W0-06 | 01-03 | 3 | SAFE-03 | T-05 misleading state | API and UI expose captured source, busy state, confirmation, and outcome guidance | HTTP/static + UAT | `node --test test/transaction.test.js` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

@@ -31,7 +31,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. User cannot start a destructive operation with an invalid slot, archive identifier, or path, or while another mutation is in progress.
   3. User can see whether an operation is targeting the mounted OP-Z or the local fixture and receives the required eject, reconnect, and refresh guidance.
   4. User receives a verified archive result only after the staged project is reread, byte-compared, reparsed, and recorded with SHA-256 and byte length; otherwise the source slot remains unchanged.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Pin one source and publish an archive only after stored-byte verification
+- [ ] 01-02-PLAN.md — Enforce shared request, path, source, and concurrency boundaries
+- [ ] 01-03-PLAN.md — Surface operation safety and prove the mounted archive path
 
 ### Phase 2: Verified Archive Shelf & Manual Freeing
 **Goal**: Users can create a complete verified archive, inspect it in a first-class shelf view, and safely free a slot through the guided manual-device fallback.
