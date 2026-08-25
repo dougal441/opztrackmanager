@@ -234,7 +234,7 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
           items.push({
             file: f, bundle: true, auto, hash: hashFile(buf),
             modified: st.mtime, tempo: parsed.tempo, usedPatterns: parsed.usedPatterns,
-            name: info.name, fromSlot: info.fromSlot,
+            name: info.name, fromSlot: Number.isInteger(info.fromSlot) && info.fromSlot >= 1 && info.fromSlot <= 10 ? info.fromSlot : null,
             hasInstruments: fs.existsSync(path.join(full, 'samplepacks')),
             instruments: info.instruments || null,
             verified,

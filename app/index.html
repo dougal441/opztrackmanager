@@ -289,6 +289,7 @@ async function runMutation(operation, callback) {
   }
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function attr(s) { return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
 function sourceGuidance(source, outcome) {
   if (!source) return 'Reconnect the source, then refresh.';
   if (source.device) return outcome === 'failure'
@@ -380,7 +381,7 @@ function renderSlots() {
     row.innerHTML =
       '<div class="num">' + String(s.slot).padStart(2,'0') + '</div>' +
       '<div class="titleCell">' +
-        '<input class="songName" placeholder="untitled" value="' + esc(name) + '" ' +
+        '<input class="songName" placeholder="untitled" value="' + attr(name) + '" ' +
           'onclick="event.stopPropagation()" onchange="saveMeta(\'' + s.hash + '\',{name:this.value})">' +
         '<div class="meta2">' + s.usedPatterns.length + ' pat' + (chainStr ? ' · ' + chainStr : '') + (tags ? ' · ' + esc(tags) : '') + '</div>' +
       '</div>' +
@@ -422,7 +423,7 @@ function kitOptions(track, sel) {
 }
 function detailHtml(s) {
   const recOpts = ['<option value="">— none —</option>'].concat(
-    STATE.recordings.map(r => '<option value="' + esc(r.path) + '"' + (s.meta && s.meta.wav === r.path ? ' selected' : '') + '>' +
+    STATE.recordings.map(r => '<option value="' + attr(r.path) + '"' + (s.meta && s.meta.wav === r.path ? ' selected' : '') + '>' +
       esc(r.name) + (r.root === 'device' ? ' · on device' : '') + '</option>')).join('');
   const pats = s.usedPatterns.map(i =>
     '<span class="pat" id="pat-' + s.slot + '-' + i + '" onclick="event.stopPropagation();playPattern(' + s.slot + ',' + i + ')">▶ ' + String(i + 1).padStart(2,'0') + '</span>').join('');
@@ -444,7 +445,7 @@ function detailHtml(s) {
       '<select style="width:100%" onchange="saveMeta(\'' + s.hash + '\',{wav:this.value,wavMatch:\'manual\'})">' + recOpts + '</select>' + autoNote +
       (s.meta && s.meta.wav ? '<audio id="wav-' + s.slot + '" preload="none" src="/audio?path=' + encodeURIComponent(s.meta.wav) + '"></audio>' : '') +
       '<div class="lbl">tags</div>' +
-      '<input type="text" style="width:100%" placeholder="handpan, ambient, wip…" value="' + esc(s.meta && s.meta.tags || '') + '" ' +
+      '<input type="text" style="width:100%" placeholder="handpan, ambient, wip…" value="' + attr(s.meta && s.meta.tags || '') + '" ' +
         'onchange="saveMeta(\'' + s.hash + '\',{tags:this.value})">' +
       '<div class="lbl">notes</div>' +
       '<textarea placeholder="Where you left off, what to try next…" ' +
@@ -506,7 +507,7 @@ function renderLibrary() {
       '<div class="libSub">' + it.tempo + ' BPM · ' + it.usedPatterns.length + ' pat' +
         (it.fromSlot ? ' · from ' + String(it.fromSlot).padStart(2,'0') : '') + ' · ' + new Date(it.modified).toLocaleDateString() + '</div>' +
       '<div class="libRow"><select id="' + rid + '">' + slotOptions() + '</select>' +
-      '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified target recovery" data-f="' + esc(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
+      '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified target recovery" data-f="' + attr(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
     shelf.appendChild(d);
   }
   const diagnostics = document.getElementById('unverifiedDrafts');
@@ -611,7 +612,7 @@ function renderInstruments() {
 async function loadAifs() {
   if (!AIFS) AIFS = await api('/api/instruments/aifs');
   const sel = document.getElementById('importSel');
-  if (sel) sel.innerHTML = AIFS.map(a => '<option value="' + esc(a.path) + '">' + esc(a.name) + '</option>').join('') || '<option value="">no .aif files in Music folder</option>';
+  if (sel) sel.innerHTML = AIFS.map(a => '<option value="' + attr(a.path) + '">' + esc(a.name) + '</option>').join('') || '<option value="">no .aif files in Music folder</option>';
 }
 async function cellClick(type, slot) {
   const item = STATE.instruments[type][slot - 1];
@@ -658,9 +659,9 @@ async function browsePacks(page) {
       d.className = 'pkRow';
       const target = selCell && !STATE.instruments[selCell.type][selCell.slot - 1];
       d.innerHTML =
-        (pk.preview ? '<button class="pkPlay" onclick="previewPack(this,\'' + esc(pk.preview) + '\')">▶</button>' : '<span></span>') +
+        (pk.preview ? '<button class="pkPlay" data-preview="' + attr(pk.preview) + '" onclick="previewPack(this,this.dataset.preview)">▶</button>' : '<span></span>') +
         '<div><div class="pkName">' + esc(pk.name) + '</div><div class="pkUser">' + esc(pk.user) + ' · <span class="pkType">' + pk.type + '</span></div></div>' +
-        (target ? '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" data-p="' + esc(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
+        (target ? '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" data-p="' + attr(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
                 : '<span class="pkType">select empty slot</span>');
       list.appendChild(d);
     }

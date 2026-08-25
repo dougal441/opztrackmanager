@@ -458,6 +458,27 @@ test('corrupt published bundle remains visible as an unverified diagnostic', t =
   assert.ok(!JSON.stringify(items).includes(libraryRoot));
 });
 
+test('attribute values and archive slots reject stored markup injection', t => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const attrSource = /function attr\(s\) \{[^\n]+\}/.exec(html)[0];
+  const attr = Function(`${attrSource}; return attr;`)();
+  const hostile = '" onfocus="alert(1)" autofocus="\'><img src=x onerror=alert(2)>';
+  const markup = '<input value="' + attr(hostile) + '">';
+  assert.equal((markup.match(/<input/g) || []).length, 1);
+  assert.equal((markup.match(/ value=/g) || []).length, 1);
+  assert.doesNotMatch(attr(hostile), /[<>"']/);
+  assert.match(html, /data-preview="' \+ attr\(pk\.preview\)/);
+  assert.doesNotMatch(html, /onclick="previewPack\(this,\\'/);
+
+  const { libraryRoot } = tempRoots(t);
+  const bundle = path.join(libraryRoot, 'hostile-slot');
+  const fixture = fs.readFileSync(FIXTURE);
+  fs.mkdirSync(bundle);
+  fs.writeFileSync(path.join(bundle, 'song.opz'), fixture);
+  fs.writeFileSync(path.join(bundle, 'info.json'), JSON.stringify({ fromSlot: hostile }));
+  assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].fromSlot, null);
+});
+
 test('mutation conflict rejects before resolver work and releases after success or failure', async () => {
   let release;
   let started;
