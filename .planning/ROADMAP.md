@@ -62,8 +62,22 @@ Plans:
   2. User can browse a first-class archive shelf view with each verified song's name, tags, step matrix, provenance, snippet availability, and verification status.
   3. User can archive a verified song and follow explicit on-device manual-clear instructions while automatic clearing is still unproven.
 
-**Plans**: TBD
+**Plans**: 3 plans
 **UI hint**: yes
+
+Plans:
+
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Publish strict versioned manifests with verified snippet and whole-grid stored-byte evidence
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Render one newest-first first-class Archive Shelf from the shared server classifier
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — Gate official manual-free guidance behind device-only read checks and prove mounted non-mutation
 
 ### Phase 3: Guarded Restore & Instrument Recovery
 

@@ -67,7 +67,7 @@ Phase 2 should be an in-place extension of the Phase 1 transaction, scanner, tes
 
 Verification and completeness must stay independent. A supported project-only record can be verified but not complete; a deep record is complete only when its project, metadata snapshot, whole-grid evidence, and allowed snippet state revalidate. Safe-to-free is a third, ephemeral result derived from current archive bytes plus the currently mounted OP-Z and matching source slot; it must never be stored as a manifest flag. [VERIFIED: `02-CONTEXT.md:17-27,35-39`; `02-UI-SPEC.md:128-149,169-178`]
 
-The official OP-Z guide documents selecting projects with `project` plus value keys `1-0`, clearing the entire selected project with `project + stop + shift`, entering content mode by holding `track` while powering on, safe eject before USB disconnect, play-to-eject in boot mode, and waiting for synchronization/restart. It does **not** document whether a cleared slot removes `projectNN.opz`, emits a canonical empty file, or merely parses with no used patterns. Therefore the planner must include a manual hardware UAT checkpoint before enabling the words `confirmed empty`; research itself did not touch the mounted device. [CITED: https://teenage.engineering/guides/op-z/project; CITED: https://teenage.engineering/guides/op-z/disk-modes; CITED: https://teenage.engineering/_img/6001818854fd930004c9a0ce_original.pdf]
+The official OP-Z guide documents selecting projects with `project` plus value keys `1-0`, clearing the entire selected project with `project + stop + shift`, entering content mode by holding `track` while powering on, safe eject before USB disconnect, play-to-eject in boot mode, and waiting for synchronization/restart. It does **not** document whether a cleared slot removes `projectNN.opz`, emits a canonical empty file, or merely parses with no used patterns. Phase 2 therefore never enables the words `confirmed empty`; the later hardware-clearing acceptance phase must record the destructive observation before adding that classifier. Research itself did not touch the mounted device. [CITED: https://teenage.engineering/guides/op-z/project; CITED: https://teenage.engineering/guides/op-z/disk-modes; CITED: https://teenage.engineering/_img/6001818854fd930004c9a0ce_original.pdf; RESOLVED: Q2]
 
 **Primary recommendation:** Extend the existing `info.json`/bundle transaction and `scanLibrary()` classifier, add a single read-only manual-free revalidation endpoint and native shelf renderer, and hardware-gate only the post-clear empty classifier—not the archive or checklist implementation. [VERIFIED: `02-CONTEXT.md:47-66`; `02-UI-SPEC.md:110-214`]
 
@@ -115,7 +115,7 @@ function getSource() {
 | Node.js | 22.22.0 installed locally | Runtime and built-in test runner | It is the current project runtime and supplies all required primitives without installation. [VERIFIED: local `node --version`; CITED: https://nodejs.org/en/download/archive/v22.22.0] |
 | `node:fs` | built into Node 22.22.0 | Canonical paths, file stats, unique drafts, flushed writes, rereads, and rename publication | Existing code already uses these operations; official docs define `readFileSync`, `realpathSync`, `mkdtempSync`, and `renameSync`. [VERIFIED: `server.js:7-14,193-228,513-626`; CITED: https://nodejs.org/download/release/v22.22.0/docs/api/fs.html] |
 | `node:path` | built into Node 22.22.0 | Controlled path derivation and containment | Existing `resolveChild()` combines positive ID validation, `realpathSync`, `resolve`, and `relative`. [VERIFIED: `server.js:456-461,642-655`; CITED: https://nodejs.org/download/release/v22.22.0/docs/api/path.html] |
-| `node:crypto` | built into Node 22.22.0 | SHA-256 file evidence and opaque mount fingerprint if adopted | Existing `sha256()` is the accepted hashing seam; official Node docs support `createHash('sha256')`. [VERIFIED: verbatim `function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }` at `server.js:384`; CITED: https://nodejs.org/download/release/v22.22.0/docs/api/crypto.html#cryptocreatehashalgorithm-options] |
+| `node:crypto` | built into Node 22.22.0 | SHA-256 project, snippet, sample-pack, and mounted-UAT file evidence | Existing `sha256()` is the accepted hashing seam; official Node docs support `createHash('sha256')`. [VERIFIED: verbatim `function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }` at `server.js:384`; CITED: https://nodejs.org/download/release/v22.22.0/docs/api/crypto.html#cryptocreatehashalgorithm-options] |
 | Existing `parseProject()` | in-repo | Project parse gate and shelf matrix source | It returns tempo, chains, patterns, and used patterns, including the 8×16 `stepGrid`; it throws for undersized bytes. [VERIFIED: `parser.js:87-121`] |
 | `node:test` + `node:assert/strict` | built into Node 22.22.0 | Filesystem, route, scanner, and static UI checks | The project already has one dependency-free integration suite; Node's test runner is stable. [VERIFIED: `test/transaction.test.js:1-20`; CITED: https://nodejs.org/api/test.html] |
 | Browser-native DOM | current macOS browser | Tabs, `<details>`, checkboxes, focus, and live status | The approved UI contract explicitly requires native controls in the existing single HTML file. [VERIFIED: `02-UI-SPEC.md:12-28,110-157,205-214`] |
@@ -162,7 +162,7 @@ Keep `info.json` as the single manifest filename. The following field names and 
 |-------|----------|----------------------|
 | `schemaVersion: 1` | yes | Exact supported format discriminator; reject other values to diagnostics. [ASSUMED] |
 | `created` | yes | One ISO creation time generated during the transaction and used for newest-first ordering. [VERIFIED: existing field verbatim `created: new Date().toISOString()` at `server.js:617`; `02-CONTEXT.md:23-24`] |
-| `source` | yes | Reuse public `device`, `label`, and `slot`; add only an opaque mount fingerprint if needed for same-mount preflight. Existing public shape is verbatim `return { device: source.device, label: source.label, slot: source.slot };`. [VERIFIED: `server.js:505-506`; ASSUMED: opaque fingerprint] |
+| `source` | yes | Reuse sanitized public `device`, `label`, and `slot` provenance only. Do not persist filesystem identity or an opaque mount fingerprint: manual-free inspection captures the currently mounted source identity inside each request, compares exact slot content with archive evidence, and invalidates the result if that current source disappears or changes. Existing public shape is verbatim `return { device: source.device, label: source.label, slot: source.slot };`. [VERIFIED: `server.js:505-506,513-551`; RESOLVED: Q1] |
 | `project` | yes | Archive-relative `song.opz`, full SHA-256, byte count, and checked time. Existing bundle/evidence values are verbatim `song.opz` and `{ verified: true, sha256: sha256(stored), bytes: stored.length, checked: new Date().toISOString() }`. [VERIFIED: `server.js:232,586,613`] |
 | `metadata` | yes | Snapshot only safe annotation fields needed by shelf/restore context: `name`, `tags`, `notes`, and `kit`; do not copy `wav`, `wavRoot`, `wavMatch`, or `updated` into this object because snippet/provenance own those concerns. Accepted metadata keys are quoted verbatim in `const limits = { name: 120, tags: 1000, notes: 10000, wav: 2000, wavRoot: 6, wavMatch: 40 };` plus `kit`. [VERIFIED: `server.js:479-496`; ASSUMED: minimal snapshot subset] |
 | `snippet` | yes | One of the locked statuses `included`, `unlinked`, `missing`, or `unavailable`; only `included` carries an archive-relative path, SHA-256, and bytes. [VERIFIED: exact values quoted in `02-CONTEXT.md:20`; ASSUMED: nested field names/location] |
@@ -210,8 +210,7 @@ Prepare manual freeing
   -> read-only refresh classifies current mounted slot
        mount absent -> unavailable
        SHA-256 unchanged -> archived song still present
-       UAT-proven empty representation -> confirmed empty
-       anything else -> unexpected replacement
+       any absent/changed/no-pattern representation -> changed/unclassified stop
   -> archive is retained in every branch
 ```
 
@@ -317,10 +316,10 @@ test/
 **What goes wrong:** after eject, `getSource()` returns the local fixture and a final check reports the wrong slot state. **How to avoid:** device-only resolver for manual preflight/final confirmation, with explicit mount-unavailable result. **Warning signs:** manual-free call graphs contain `getSource()` without a `device === true` gate. [VERIFIED: `server.js:103-124`; `02-CONTEXT.md:35-39`]
 
 ### Pitfall 7: Empty-slot false positive
-**What goes wrong:** the app declares success from file absence or no musical notes even though the hardware clear did not produce that exact state. **How to avoid:** capture before/after directory listing, project filename presence, bytes/hash, parser output, and remount behavior in a manual device UAT; encode only the observed rule and retain a fixture. **Warning signs:** `confirmed empty` ships before a recorded device observation. [CITED: official guides do not define post-clear disk state; VERIFIED: hardware rule `AGENTS.md:17`]
+**What goes wrong:** the app declares success from file absence or no musical notes even though the hardware clear did not produce that exact state. **How to avoid:** Phase 2 returns changed/unclassified for every such representation; the later hardware-clearing acceptance captures before/after directory listing, project filename presence, bytes/hash, parser output, and remount behavior before encoding an observed rule and retained fixture. **Warning signs:** `confirmed empty` appears in Phase 2 runtime behavior or before a recorded device observation. [CITED: official guides do not define post-clear disk state; VERIFIED: hardware rule `AGENTS.md:17`; RESOLVED: Q2]
 
 ### Pitfall 8: Checklist becomes an app mutation
-**What goes wrong:** checkbox changes or the final refresh call a POST route that writes/deletes device files. **How to avoid:** checkbox-only steps 1–4, one read-only revalidation call for step 5, and a test that snapshots the mounted/temp source tree before/after endpoint calls. **Warning signs:** `withMutation()`, `writeFileSync`, `renameSync`, `unlinkSync`, or `rmSync` is reachable from manual-free routes. [VERIFIED: `02-UI-SPEC.md:180-201`; `02-CONTEXT.md:35-39`]
+**What goes wrong:** checkbox changes or the final refresh call a POST route that writes/deletes device files. **How to avoid:** checkbox-only steps 1–4, one read-only revalidation call for step 5, and a test that snapshots every regular file beneath the mounted root before/after endpoint calls. **Warning signs:** `withMutation()`, `writeFileSync`, `renameSync`, `unlinkSync`, or `rmSync` is reachable from manual-free routes. [VERIFIED: `02-UI-SPEC.md:180-201`; `02-CONTEXT.md:35-39`]
 
 ### Pitfall 9: Unsafe HTML evidence rendering
 **What goes wrong:** names, tags, paths, or diagnostic text inject markup into string-built rows. **How to avoid:** use existing `esc()` for text and `attr()` for attributes on every manifest-derived value; keep no raw internal errors. **Warning signs:** a manifest string is concatenated into `innerHTML` without one of those helpers. [VERIFIED: exact helpers at `app/index.html:291-292`; injection tests `test/transaction.test.js:601-628`; `02-UI-SPEC.md:95-106`]
@@ -400,29 +399,25 @@ The important verified constraints are that bundle IDs pass the existing positiv
 |---|-------|---------|---------------|
 | A1 | Use `schemaVersion: 1` and the proposed nested field names inside existing `info.json`. | Minimal Manifest Contract | Planner may choose incompatible names; tests and scanner must agree before publication. |
 | A2 | Snapshot `name`, `tags`, `notes`, and `kit` as metadata; represent the selected recording only through `snippet`. | Minimal Manifest Contract | A later restore might need another annotation; adding a backward-compatible optional field is cheap. |
-| A3 | Store an opaque fingerprint derived from the captured mount stat tuple if source label/project hash alone does not satisfy mounted-source identity. | Minimal Manifest Contract / Open Questions | Mount identity may not survive remount; manual-free eligibility could be too strict or too weak. |
+| A3 | Do not persist an opaque mount fingerprint. Capture canonical root/dev/inode and project bytes only inside the current inspection request, compare archive provenance plus exact slot SHA-256/length, and revalidate the same captured source before responding. | Minimal Manifest Contract / Resolved Questions | RESOLVED: no remount-stability assumption enters the manifest or eligibility model. |
 | A4 | Store an included snippet under one archive-relative `snippet/` location. | Minimal Manifest Contract | Exact filename/location may differ; no safety impact if scanner and manifest agree. |
 | A5 | App slot 10 maps to hardware value key 0. | Official Manual Sequence | Wrong mapping risks clearing the wrong physical project; device UAT and exact-slot acknowledgement are mandatory. |
 | A6 | Mount timing and the UI's `content/boot mode` wording match observed firmware behavior. | Official Manual Sequence | Guidance may confuse the user; adjust copy after device observation. |
 | A7 | Proposed helper and API response field names in examples. | Code Examples | Implementation names may differ with no behavioral impact. |
-| A8 | The three candidate post-clear representations are missing file, canonical empty bytes, or parseable no-pattern bytes. | Open Questions | Hardware may expose a different representation; record actual state before implementing the success classifier. |
+| A8 | Missing file, canonical-empty bytes, and parseable no-pattern bytes are all unclassified in Phase 2. | Resolved Questions | RESOLVED: Phase 2 never reports confirmed empty; authoritative classification remains with the later hardware-clearing acceptance phase. |
 | A9 | Future targeted tests will use names matching `manifest`, `snippet`, `shelf`, `manual free`, or `empty slot`. | Validation Architecture | Only the quick command changes if implementers choose different test names. |
 
-## Open Questions
+## Resolved Questions
 
-1. **What is the smallest stable mounted-device identity?**
-   - What we know: capture currently records canonical root, `stat.dev`, and `stat.ino` as verbatim fields `root`, `rootDevice`, and `rootInode`, and revalidates all three inside one mounted transaction. [VERIFIED: `server.js:513-550`]
-   - What's unclear: official OP-Z docs do not expose a persistent device identifier, and research was forbidden from probing the mounted device. `dev`/inode stability across eject/remount is unverified. [CITED: official disk guide; VERIFIED: `02-CONTEXT.md:70-74`]
-   - Recommendation: for checklist preflight, persist only an opaque hash of the captured stat tuple plus sanitized label and require exact project SHA; add a read-only reconnect UAT to see whether the fingerprint survives. If it does not, use the smallest native macOS volume identifier proven available in that UAT, never an absolute path. [ASSUMED]
+1. **[RESOLVED] What is the smallest stable mounted-device identity?**
+   - Decision: persist no mount fingerprint and assume nothing about dev/inode stability across eject/remount. Each shelf eligibility/preflight/final-refresh request resolves the mounted OP-Z with `findDeviceRoot()` only, captures the current canonical root/dev/inode plus exact slot Buffer through the existing `captureSource()` seam, compares sanitized archive provenance (`device: true`, source label, slot) and project SHA-256/length, and calls `assertCapturedSource()` before returning. Any disappearance, replacement, or byte change invalidates that request; a later request starts with a fresh current-process identity. [VERIFIED: existing capture/revalidation `server.js:513-551`; SAFE-01 precedent]
+   - Evidence: local substitution tests must change/remove the source between capture and final assertion; the mounted UAT snapshots every regular file beneath the mounted root before/after. No read-only remount evidence is needed because no identity is persisted across remount. [RESOLVED: fail-closed without an unproven persistence assumption]
 
-2. **What exactly represents a cleared project on content disk?**
-   - What we know: the official guide documents the entire-project gesture but not the remounted file state. [CITED: https://teenage.engineering/guides/op-z/project; CITED: https://teenage.engineering/guides/op-z/disk-modes]
-   - What's unclear: missing file versus canonical empty bytes versus parseable no-pattern bytes. [ASSUMED alternatives]
-   - Recommendation: planner adds an end-of-phase human checkpoint: choose a fully archived expendable slot, record project directory/name/hash/parser state before, perform the official physical clear/eject/reconnect sequence, record after, retain the observed empty `.opz` fixture if one exists, and only then enable `confirmed empty`. No Mac screen control is needed. [VERIFIED: hardware constraint `AGENTS.md:17`; `02-CONTEXT.md:70-74`]
+2. **[RESOLVED] What exactly represents a cleared project on content disk?**
+   - Decision: Phase 2 classifies missing project files, changed hashes, canonical-looking bytes, and parseable no-pattern projects as changed/unclassified stop outcomes. It never reports `confirmed empty` and performs no physical clear during UAT. The hardware-clearing phase owns the destructive observation, retained fixture, and authoritative empty classifier. [CITED: official guides do not define post-clear disk state; VERIFIED: phase boundary `02-CONTEXT.md:7-10,78-83`]
 
-3. **Where should intentionally project-only supported manifests appear?**
-   - What we know: locked context says a project-only archive is verified; the detailed shelf row supports `project only`, while one UI considerations row groups project-only with diagnostics. [VERIFIED: `02-CONTEXT.md:17-18`; `02-UI-SPEC.md:128-140,242-250`]
-   - Recommendation: honor locked context and the detailed interaction contract: supported, internally consistent project-only manifests appear in the verified shelf with a visible `project only` badge and no manual-free action; malformed/incomplete manifests and all unversioned Phase 1 bundles go to diagnostics. [VERIFIED: precedence from locked CONTEXT.md]
+3. **[RESOLVED] Where should intentionally project-only supported manifests appear?**
+   - Decision: honor locked context and the detailed shelf-row contract. Supported, internally consistent project-only manifests appear in the verified shelf with a visible `project only` badge and no manual-free action. Malformed/incomplete manifests and all unversioned Phase 1 bundles remain diagnostics. [VERIFIED: `02-CONTEXT.md:17-18`; `02-UI-SPEC.md:128-140,153-157`; locked CONTEXT precedence]
 
 ## Environment Availability
 
@@ -431,9 +426,9 @@ The important verified constraints are that bundle IDs pass the existing positiv
 | Node.js | Server and tests | ✓ | 22.22.0 | None needed. [VERIFIED: local `node --version`] |
 | `node:test` | Automated validation | ✓ | built into Node 22.22.0 | None needed. [VERIFIED: `test/transaction.test.js:1-20`; CITED: https://nodejs.org/api/test.html] |
 | Modern macOS browser | Shelf/checklist UAT | ✓ by project environment, not screen-controlled during research | — | Static HTML assertions plus later manual keyboard UAT. [VERIFIED: `AGENTS.md:38-48`; `02-CONTEXT.md:73`] |
-| Mounted OP-Z | Read-only archive/preflight UAT and manual post-clear observation | Stated available; deliberately not probed | firmware unknown | `opzdisk/` covers local archive/scanner tests but must never substitute manual-free device checks. [VERIFIED: `02-CONTEXT.md:73`; `server.js:117-124`] |
+| Mounted OP-Z | Read-only archive/preflight whole-root non-mutation UAT | Stated available; deliberately not probed | firmware unknown | `opzdisk/` covers local archive/scanner tests but must never substitute manual-free device checks. Physical clearing/post-clear observation is excluded from Phase 2. [VERIFIED: `02-CONTEXT.md:73`; `server.js:117-124`; RESOLVED: Q2] |
 
-**Missing dependencies with no fallback:** none for implementation or local tests. The final `confirmed empty` acceptance remains hardware-observation-gated. [VERIFIED: environment probes and `02-CONTEXT.md:73`]
+**Missing dependencies with no fallback:** none for Phase 2 implementation or acceptance. `confirmed empty` is not a Phase 2 acceptance condition; it remains owned by the later hardware-clearing phase. [VERIFIED: environment probes and `02-CONTEXT.md:73`; RESOLVED: Q2]
 
 **Missing dependencies with fallback:** none. [VERIFIED: no external package/service requirement]
 
@@ -455,19 +450,19 @@ The important verified constraints are that bundle IDs pass the existing positiv
 | ARCH-03 | Versioned manifest snapshots metadata/source, classifies all snippet states, verifies whole grid and every included byte, rejects corruption/unknown schema/path escape | filesystem integration | `node --test --test-name-pattern='manifest|snippet' test/transaction.test.js` | ✅ extend existing |
 | ARCH-05 | Scanner returns newest-first verified shelf plus separate sanitized diagnostics; archived parser output feeds matrix; UI has one accessible shelf renderer and no actions in diagnostics | integration + static UI | `node --test --test-name-pattern='shelf|diagnostic|matrix|tab' test/transaction.test.js` | ✅ extend existing |
 | SAFE-04 | Preflight is read-only, device-only, fail-closed on mount/source/archive changes, and returns the four final relations without deleting archives | HTTP/filesystem integration | `node --test --test-name-pattern='manual free|empty slot|mount' test/transaction.test.js` | ✅ extend existing |
-| SAFE-04 | Physical keys, slot-10 mapping, eject/restart sequence, and actual post-clear disk state | manual hardware UAT | Human checkpoint after local suite; no screen control | ❌ Wave/final gate |
+| SAFE-04 | Physical key/slot/eject/restart copy plus fail-closed handling for every undocumented post-clear representation | static UI + HTTP/filesystem integration | `node --test --test-name-pattern='manual free|manual checklist|mounted UAT' test/transaction.test.js` | ✅ existing file; no physical clear or human-only gate |
 
 ### Sampling Rate
 
 - **Per task commit:** targeted `--test-name-pattern` command for the changed seam. [ASSUMED: future test names]
 - **Per wave merge:** `node --test test/transaction.test.js`. [VERIFIED: current command]
-- **Phase gate:** full suite green, manual keyboard/accessibility pass, read-only mounted archive/preflight pass, then recorded manual clear/remount observation before `$gsd-verify-work`. [VERIFIED: `AGENTS.md:17`; `02-UI-SPEC.md:205-214`; `02-CONTEXT.md:70-74`]
+- **Phase gate:** full suite green plus the opt-in mounted archive/preflight UAT proving every regular file beneath the mounted root retains the same relative path, size, mode, modification time, and SHA-256. Phase 2 performs no manual clear/remount observation; authoritative post-clear classification remains with the hardware-clearing phase. [VERIFIED: `AGENTS.md:17`; `02-CONTEXT.md:70-74`; RESOLVED: Q2]
 
 ### Wave 0 Gaps
 
 - [ ] Add helper-level manifest/snippet/source fixtures inside existing `test/transaction.test.js`; no new test file or framework is needed. [VERIFIED: reusable `tempRoots()` at `test/transaction.test.js:22-37`]
 - [ ] Add a device-UAT test/checkpoint gated by an explicit environment flag, following the existing skipped hardware test pattern. [VERIFIED: current gate verbatim `{ skip: process.env.OPZ_HARDWARE_UAT !== '1' }` at `test/transaction.test.js:801`]
-- [ ] Record a proven post-clear empty fixture/classifier from hardware before asserting `confirmed empty`. [CITED: official documentation gap]
+- [x] Resolve the documentation gap fail-closed for Phase 2: never assert `confirmed empty`; the later hardware-clearing phase owns the destructive fixture/classifier. [CITED: official documentation gap; RESOLVED: Q2]
 
 ## Security Domain
 
