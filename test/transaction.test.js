@@ -40,6 +40,33 @@ function visibleBundles(libraryRoot) {
   return fs.readdirSync(libraryRoot).filter(name => !name.startsWith('.'));
 }
 
+function schemaInfo(bytes, overrides = {}) {
+  const checked = '2026-08-25T12:00:00.000Z';
+  return {
+    schemaVersion: 1,
+    created: checked,
+    source: { device: false, label: 'temporary fixture', slot: 1 },
+    project: {
+      path: 'song.opz',
+      bytes: bytes.length,
+      sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+      checked,
+    },
+    metadata: { name: 'Song', tags: '', notes: '', kit: {} },
+    snippet: { status: 'unlinked' },
+    samplepacks: { captured: false, files: [] },
+    ...overrides,
+  };
+}
+
+function writeSchemaBundle(libraryRoot, name, info, bytes = fs.readFileSync(FIXTURE)) {
+  const dir = path.join(libraryRoot, name);
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'song.opz'), bytes);
+  fs.writeFileSync(path.join(dir, 'info.json'), JSON.stringify(info));
+  return dir;
+}
+
 function useFixtureSource(t, sourceRoot) {
   const previous = process.env.OPZ_ROOT;
   process.env.OPZ_ROOT = sourceRoot;
@@ -114,6 +141,70 @@ test('verified archive tracer publishes reread, parsed bytes with evidence', t =
   info.verification.sha256 = '0'.repeat(64);
   fs.writeFileSync(path.join(bundle, 'info.json'), JSON.stringify(info));
   assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, false);
+});
+
+test('archive classification keeps manifest verification completeness and unicode metadata separate', t => {
+  const { libraryRoot } = tempRoots(t);
+  const fixture = fs.readFileSync(FIXTURE);
+  const unicode = { name: '夜の歌 🎶', tags: '深夜, α', notes: 'Ångström — 安全', kit: { kick: 1, chord: 10 } };
+  const projectOnly = schemaInfo(fixture, { metadata: unicode });
+  writeSchemaBundle(libraryRoot, 'project-only', projectOnly, fixture);
+
+  const complete = schemaInfo(fixture, {
+    created: '2026-08-25T13:00:00.000Z',
+    samplepacks: { captured: true, files: [] },
+  });
+  writeSchemaBundle(libraryRoot, 'complete', complete, fixture);
+
+  const items = subject.scanLibrary({ songs: {} }, libraryRoot, null);
+  const projectItem = items.find(item => item.file === 'project-only');
+  const completeItem = items.find(item => item.file === 'complete');
+  assert.equal(projectItem.verified, true);
+  assert.equal(projectItem.complete, false);
+  assert.equal(projectItem.manualFreeEligible, false);
+  assert.deepEqual(projectItem.metadata, unicode);
+  assert.equal(completeItem.verified, true);
+  assert.equal(completeItem.complete, true);
+  assert.equal(completeItem.manualFreeEligible, false);
+  assert.equal(subject.findBundle('project-only', false, libraryRoot, null).buffer.equals(fixture), true);
+});
+
+test('manifest diagnostics reject unsupported partial traversal symlink and stored evidence tampering', t => {
+  const { libraryRoot } = tempRoots(t);
+  const fixture = fs.readFileSync(FIXTURE);
+  const cases = [
+    ['legacy', { name: 'old record' }, 'ARCHIVE_LEGACY'],
+    ['unsupported', schemaInfo(fixture, { schemaVersion: 2 }), 'ARCHIVE_UNSUPPORTED'],
+    ['partial', schemaInfo(fixture, { metadata: undefined }), 'ARCHIVE_PARTIAL'],
+    ['traversal', schemaInfo(fixture, { project: { ...schemaInfo(fixture).project, path: '../song.opz' } }), 'ARCHIVE_CORRUPT'],
+    ['tampered', schemaInfo(fixture, { project: { ...schemaInfo(fixture).project, sha256: '0'.repeat(64) } }), 'ARCHIVE_CORRUPT'],
+  ];
+  for (const [name, info, errorCode] of cases) {
+    writeSchemaBundle(libraryRoot, name, info, fixture);
+    const item = subject.scanLibrary({ songs: {} }, libraryRoot, null).find(entry => entry.file === name);
+    assert.equal(item.verified, false, name);
+    assert.equal(item.complete, false, name);
+    assert.equal(item.restoreEligible, false, name);
+    assert.equal(item.manualFreeEligible, false, name);
+    assert.equal(item.errorCode, errorCode, name);
+    assert.throws(() => subject.findBundle(name, false, libraryRoot, null), error => error.code === 'BUNDLE_UNVERIFIED');
+  }
+
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-manifest-outside-'));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  const symlinkInfo = schemaInfo(fixture, {
+    snippet: { status: 'included', path: 'snippet/linked.wav', bytes: 7, sha256: crypto.createHash('sha256').update('outside').digest('hex') },
+    samplepacks: { captured: true, files: [] },
+  });
+  const symlinkBundle = writeSchemaBundle(libraryRoot, 'symlink', symlinkInfo, fixture);
+  fs.mkdirSync(path.join(symlinkBundle, 'snippet'));
+  fs.writeFileSync(path.join(outside, 'linked.wav'), 'outside');
+  fs.symlinkSync(path.join(outside, 'linked.wav'), path.join(symlinkBundle, 'snippet', 'linked.wav'));
+  const symlink = subject.scanLibrary({ songs: {} }, libraryRoot, null).find(item => item.file === 'symlink');
+  assert.equal(symlink.verified, false);
+  assert.equal(symlink.errorCode, 'ARCHIVE_CORRUPT');
+  assert.ok(!JSON.stringify(subject.scanLibrary({ songs: {} }, libraryRoot, null)).includes(libraryRoot));
+  assert.ok(!JSON.stringify(symlink).includes(outside));
 });
 
 test('deep archive verifies every stored sample-pack byte', t => {
