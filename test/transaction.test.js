@@ -276,6 +276,18 @@ test('settings response never exposes the stored token', async t => {
   assert.doesNotMatch(html, /SETTINGS\.op1funToken/);
 });
 
+test('settings writes replace atomically with user-only permissions', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-settings-'));
+  const file = path.join(dir, 'settings.json');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(file, '{}', { mode: 0o644 });
+
+  subject.saveSettings({ op1funEmail: 'fixture@example.test', op1funToken: 'fixture-token' }, file);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).op1funToken, 'fixture-token');
+  assert.deepEqual(fs.readdirSync(dir), ['settings.json']);
+});
+
 test('bundle containment rejects path escapes and unverified items', t => {
   const { libraryRoot } = tempRoots(t);
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-outside-'));

@@ -48,6 +48,7 @@ let activeMutation = null;
 const testHooks = {};
 
 for (const d of [LIB_DIR, AUTO_DIR, TRASH_DIR, DATA_DIR]) fs.mkdirSync(d, { recursive: true });
+try { fs.chmodSync(SETTINGS_FILE, 0o600); } catch {}
 
 // ---------- metadata ----------
 function loadMeta() {
@@ -55,6 +56,17 @@ function loadMeta() {
   catch { return { songs: {} }; }
 }
 function saveMeta(meta) { fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2)); }
+function saveSettings(settings, file = SETTINGS_FILE) {
+  const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}-${crypto.randomBytes(6).toString('hex')}.tmp`);
+  try {
+    fs.writeFileSync(temp, JSON.stringify(settings, null, 2), { mode: 0o600, flag: 'wx', flush: true });
+    fs.renameSync(temp, file);
+    fs.chmodSync(file, 0o600);
+  } catch (error) {
+    try { fs.unlinkSync(temp); } catch {}
+    throw error;
+  }
+}
 function hashFile(buf) { return crypto.createHash('md5').update(buf).digest('hex').slice(0, 16); }
 
 // ---------- source detection ----------
@@ -758,7 +770,7 @@ const server = http.createServer(async (req, res) => {
       if ('op1funEmail' in body) validateString(body.op1funEmail, 'op1funEmail', 320);
       if ('op1funToken' in body) validateString(body.op1funToken, 'op1funToken', 1000);
       let cur = {}; try { cur = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...cur, ...body }, null, 2));
+      saveSettings({ ...cur, ...body });
       return json(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
     }
 
@@ -842,6 +854,7 @@ module.exports = {
   validatePackType,
   validateBundleId,
   parseByteRange,
+  saveSettings,
   resolveChild,
   findBundle,
   captureSource,
