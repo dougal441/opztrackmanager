@@ -770,7 +770,8 @@ const server = http.createServer(async (req, res) => {
       const body = validateBackup(await readBody(req));
       return await withMutation(`archive slot ${body.slot}`, async mutation => {
         if (testHooks.beforeBackupCapture) await testHooks.beforeBackupCapture();
-        const meta = loadMeta();
+        const metaFile = testHooks.metaFile || META_FILE;
+        const meta = loadMeta(metaFile);
         const source = (testHooks.sourceResolver || getSource)();
         if (!source) throw new Error('no source');
         const captured = (testHooks.captureSource || captureSource)(body.slot, source);
@@ -783,8 +784,19 @@ const server = http.createServer(async (req, res) => {
           deep: body.deep,
           operation: mutation.operation,
         });
-        if (body.name) { meta.songs[hash] = { ...(meta.songs[hash] || {}), name: body.name }; saveMeta(meta); }
-        return json(res, 200, result);
+        let metadataSaved = true;
+        if (body.name) {
+          try {
+            const updatedMeta = loadMetaForUpdate(metaFile);
+            updatedMeta.songs[hash] = { ...(updatedMeta.songs[hash] || {}), name: body.name };
+            saveMeta(updatedMeta, metaFile);
+          } catch { metadataSaved = false; }
+        }
+        return json(res, 200, {
+          ...result,
+          metadataSaved,
+          guidance: metadataSaved ? result.guidance : `${result.guidance} The name annotation was not saved; repair the metadata file and add it again.`,
+        });
       });
     }
     // ---- instruments ----

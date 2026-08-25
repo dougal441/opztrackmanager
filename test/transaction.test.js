@@ -675,6 +675,30 @@ test('guard before capture rejects an HTTP competitor with zero source work', as
   assert.equal(captureCalls, 1);
 });
 
+test('published archive stays successful when its name annotation cannot be saved', async t => {
+  const roots = tempRoots(t);
+  const metaFile = path.join(path.dirname(roots.libraryRoot), 'meta.json');
+  const priorMeta = { songs: {} };
+  fs.writeFileSync(metaFile, JSON.stringify(priorMeta));
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.metaFile = metaFile;
+  subject.testHooks.beforeJsonRename = () => { throw new Error('injected metadata failure'); };
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+
+  const response = await requestJson(subject.server, '/api/backup', { slot: 1, name: 'Published once', deep: false });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.verified, true);
+  assert.equal(response.body.metadataSaved, false);
+  assert.match(response.body.guidance, /name annotation was not saved/);
+  assert.deepEqual(visibleBundles(roots.libraryRoot), [response.body.file]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(metaFile, 'utf8')), priorMeta);
+});
+
 test('later-phase routes unavailable before filesystem mutation', async t => {
   const unavailable = [
     '/api/restore',
