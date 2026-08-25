@@ -217,6 +217,153 @@ test('manifest diagnostics reject unsupported partial traversal symlink and stor
   assert.ok(!JSON.stringify(symlink).includes(outside));
 });
 
+test('snippet capture records included unlinked missing and unavailable states without escaping roots', t => {
+  const fixture = fs.readFileSync(FIXTURE);
+  const included = tempRoots(t, fixture);
+  const bounceDir = path.join(included.sourceRoot, 'bounces');
+  const snippetBytes = Buffer.from([0, 255, 1, 2, 128]);
+  fs.mkdirSync(bounceDir);
+  fs.writeFileSync(path.join(bounceDir, 'take.wav'), snippetBytes);
+  const includedResult = subject.archiveCapturedProject(subject.captureSource(1, {
+    ...included.source, device: true, label: 'fixture OP-Z',
+  }), {
+    libraryRoot: included.libraryRoot,
+    name: 'Included snippet',
+    deep: true,
+    metadata: { name: 'スニペット 🎵', tags: 'α', notes: '安全', kit: {} },
+    recording: { root: 'device', path: 'bounces/take.wav' },
+  });
+  const includedBundle = path.join(included.libraryRoot, includedResult.file);
+  const includedInfo = JSON.parse(fs.readFileSync(path.join(includedBundle, 'info.json'), 'utf8'));
+  assert.equal(includedInfo.snippet.status, 'included');
+  assert.equal(includedInfo.snippet.path, 'snippet/recording.wav');
+  assert.equal(includedInfo.snippet.bytes, snippetBytes.length);
+  assert.equal(includedInfo.snippet.sha256, crypto.createHash('sha256').update(snippetBytes).digest('hex'));
+  assert.ok(fs.readFileSync(path.join(includedBundle, includedInfo.snippet.path)).equals(snippetBytes));
+  assert.equal(subject.scanLibrary({ songs: {} }, included.libraryRoot, null)[0].complete, true);
+
+  const statuses = [
+    ['unlinked', null],
+    ['missing', { root: 'device', path: 'bounces/missing.wav' }],
+    ['unavailable', { root: 'device', path: '../outside.wav' }],
+  ];
+  for (const [status, recording] of statuses) {
+    const roots = tempRoots(t, fixture);
+    const result = subject.archiveCapturedProject(subject.captureSource(1, {
+      ...roots.source, device: true, label: 'fixture OP-Z',
+    }), {
+      libraryRoot: roots.libraryRoot,
+      name: status,
+      deep: true,
+      metadata: { name: status, tags: '', notes: '', kit: {} },
+      recording,
+    });
+    const info = JSON.parse(fs.readFileSync(path.join(roots.libraryRoot, result.file, 'info.json'), 'utf8'));
+    assert.deepEqual(info.snippet, { status });
+    assert.equal(subject.scanLibrary({ songs: {} }, roots.libraryRoot, null)[0].complete, status === 'unlinked');
+  }
+
+  const escaped = tempRoots(t, fixture);
+  const outside = path.join(path.dirname(escaped.sourceRoot), 'outside.wav');
+  fs.writeFileSync(outside, 'outside');
+  fs.mkdirSync(path.join(escaped.sourceRoot, 'bounces'));
+  fs.symlinkSync(outside, path.join(escaped.sourceRoot, 'bounces', 'escape.wav'));
+  const escapedResult = subject.archiveCapturedProject(subject.captureSource(1, {
+    ...escaped.source, device: true, label: 'fixture OP-Z',
+  }), {
+    libraryRoot: escaped.libraryRoot,
+    name: 'symlink', deep: true,
+    metadata: { name: 'symlink', tags: '', notes: '', kit: {} },
+    recording: { root: 'device', path: 'bounces/escape.wav' },
+  });
+  const escapedInfo = JSON.parse(fs.readFileSync(path.join(escaped.libraryRoot, escapedResult.file, 'info.json'), 'utf8'));
+  assert.deepEqual(escapedInfo.snippet, { status: 'unavailable' });
+});
+
+test('whole-grid stored evidence and manifest publication preserve the source on success and failure', t => {
+  const fixture = fs.readFileSync(FIXTURE);
+  const create = () => {
+    const roots = tempRoots(t, fixture);
+    const pack = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
+    fs.mkdirSync(pack, { recursive: true });
+    fs.writeFileSync(path.join(pack, 'kick.aif'), Buffer.from('pack bytes'));
+    return roots;
+  };
+  const sourceHash = crypto.createHash('sha256').update(fixture).digest('hex');
+  const success = create();
+  let hiddenBeforePublish = false;
+  const result = subject.archiveCapturedProject(subject.captureSource(1, success.source), {
+    libraryRoot: success.libraryRoot,
+    name: 'Complete evidence',
+    deep: true,
+    metadata: { name: '夜の歌', tags: '深夜', notes: '完全', kit: { kick: 1 } },
+    recording: null,
+    beforePublish(_storedPath, draft) {
+      hiddenBeforePublish = visibleBundles(success.libraryRoot).length === 0 && path.basename(draft).startsWith('.partial-');
+    },
+  });
+  assert.equal(hiddenBeforePublish, true);
+  const bundle = path.join(success.libraryRoot, result.file);
+  const info = JSON.parse(fs.readFileSync(path.join(bundle, 'info.json'), 'utf8'));
+  assert.equal(info.schemaVersion, 1);
+  assert.deepEqual(info.metadata, { name: '夜の歌', tags: '深夜', notes: '完全', kit: { kick: 1 } });
+  assert.deepEqual(info.source, { device: false, label: 'temporary fixture', slot: 1 });
+  assert.equal(info.project.path, 'song.opz');
+  assert.deepEqual(info.samplepacks.files.map(item => item.path), ['1-kick/01/kick.aif']);
+  assert.equal(result.complete, true);
+  assert.ok(!JSON.stringify(info).includes(success.sourceRoot));
+  assert.ok(!JSON.stringify(info).includes('rootInode'));
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(success.sourceRoot, 'projects', 'project01.opz'))).digest('hex'), sourceHash);
+
+  for (const target of ['manifest', 'pack']) {
+    const roots = create();
+    assert.throws(() => subject.archiveCapturedProject(subject.captureSource(1, roots.source), {
+      libraryRoot: roots.libraryRoot,
+      name: `Tampered ${target}`,
+      deep: true,
+      metadata: { name: target, tags: '', notes: '', kit: {} },
+      recording: null,
+      beforePublish(_storedPath, draft) {
+        if (target === 'manifest') fs.writeFileSync(path.join(draft, 'info.json'), '{');
+        else fs.writeFileSync(path.join(draft, 'samplepacks', '1-kick', '01', 'kick.aif'), 'tampered');
+      },
+    }), error => error.code === 'ARCHIVE_MANIFEST_MISMATCH');
+    assert.deepEqual(visibleBundles(roots.libraryRoot), []);
+    assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(roots.sourceRoot, 'projects', 'project01.opz'))).digest('hex'), sourceHash);
+  }
+});
+
+test('HTTP manifest publication snapshots bounded annotations and original snippet selection', async t => {
+  const roots = tempRoots(t);
+  const fixture = fs.readFileSync(FIXTURE);
+  const hash = crypto.createHash('md5').update(fixture).digest('hex').slice(0, 16);
+  const bounceDir = path.join(roots.sourceRoot, 'bounces');
+  fs.mkdirSync(bounceDir);
+  fs.writeFileSync(path.join(bounceDir, 'http.wav'), Buffer.from('http snippet'));
+  const metaFile = path.join(path.dirname(roots.libraryRoot), 'meta.json');
+  fs.writeFileSync(metaFile, JSON.stringify({ songs: { [hash]: {
+    name: '原曲', tags: 'タグ', notes: 'ノート', kit: { bass: 2 },
+    wavRoot: 'device', wav: 'bounces/http.wav', updated: 'private', wavMatch: 'manual',
+  } } }));
+  subject.testHooks.sourceResolver = () => ({ ...roots.source, device: true, label: 'fixture OP-Z' });
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.metaFile = metaFile;
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+
+  const response = await requestJson(subject.server, '/api/backup', { slot: 1, name: '', deep: true });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.complete, true);
+  const info = JSON.parse(fs.readFileSync(path.join(roots.libraryRoot, response.body.file, 'info.json'), 'utf8'));
+  assert.deepEqual(info.metadata, { name: '原曲', tags: 'タグ', notes: 'ノート', kit: { bass: 2 } });
+  assert.equal(info.snippet.status, 'included');
+  assert.equal(Object.hasOwn(info.metadata, 'wav'), false);
+  assert.equal(Object.hasOwn(info.metadata, 'updated'), false);
+});
+
 test('deep archive verifies every stored sample-pack byte', t => {
   const roots = tempRoots(t);
   const packDir = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
