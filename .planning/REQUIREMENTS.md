@@ -7,10 +7,10 @@
 
 ### Archive Safety
 
-- [ ] **ARCH-01**: User can start an archive from a slot whose source bytes and mounted-device identity are captured once for the entire operation
-- [ ] **ARCH-02**: User receives a verified archive only after the staged `song.opz` is reread, byte-compared with the captured source, reparsed successfully, and recorded with its SHA-256 and byte length
+- [x] **ARCH-01**: User can start an archive from a slot whose source bytes and mounted-device identity are captured once for the entire operation
+- [x] **ARCH-02**: User receives a verified archive only after the staged `song.opz` is reread, byte-compared with the captured source, reparsed successfully, and recorded with its SHA-256 and byte length
 - [ ] **ARCH-03**: User's archive records project metadata, snippet portability, instrument-grid context, source slot, creation time, and verification evidence in a versioned manifest
-- [ ] **ARCH-04**: User retains the source slot unchanged whenever archive capture or verification fails
+- [x] **ARCH-04**: User retains the source slot unchanged whenever archive capture or verification fails
 - [ ] **ARCH-05**: User can browse verified archives on a first-class shelf with name, tags, matrix, provenance, snippet availability, and verification status
 
 ### Restore Safety
@@ -23,7 +23,7 @@
 
 ### Device Safety
 
-- [ ] **SAFE-01**: User's destructive operation stops without switching to `opzdisk/` if the captured OP-Z mount disappears or changes during the transaction
+- [x] **SAFE-01**: User's destructive operation stops without switching to `opzdisk/` if the captured OP-Z mount disappears or changes during the transaction
 - [ ] **SAFE-02**: User cannot start destructive operations with invalid slot numbers, bundle identifiers, paths, or concurrent mutation requests
 - [ ] **SAFE-03**: User sees whether an operation targeted the mounted OP-Z or local fixture and receives the required eject, reconnect, and refresh guidance
 - [ ] **SAFE-04**: User can archive a verified song and follow a guided manual device-clear fallback while automatic clearing remains unproven
@@ -70,17 +70,17 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ARCH-01 | Phase 1 | Pending |
-| ARCH-02 | Phase 1 | Pending |
+| ARCH-01 | Phase 1 | Complete |
+| ARCH-02 | Phase 1 | Complete |
 | ARCH-03 | Phase 2 | Pending |
-| ARCH-04 | Phase 1 | Pending |
+| ARCH-04 | Phase 1 | Complete |
 | ARCH-05 | Phase 2 | Pending |
 | REST-01 | Phase 3 | Pending |
 | REST-02 | Phase 3 | Pending |
 | REST-03 | Phase 3 | Pending |
 | REST-04 | Phase 3 | Pending |
 | REST-05 | Phase 3 | Pending |
-| SAFE-01 | Phase 1 | Pending |
+| SAFE-01 | Phase 1 | Complete |
 | SAFE-02 | Phase 1 | Pending |
 | SAFE-03 | Phase 1 | Pending |
 | SAFE-04 | Phase 2 | Pending |
@@ -94,6 +94,7 @@
 | CLEAR-03 | Phase 6 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 22 total
 - Mapped to phases: 22
 - Unmapped: 0

@@ -35,12 +35,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can see whether an operation is targeting the mounted OP-Z or the local fixture and receives the required eject, reconnect, and refresh guidance.
   4. User receives a verified archive result only after the staged project is reread, byte-compared, reparsed, and recorded with SHA-256 and byte length; otherwise the source slot remains unchanged.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Pin one source and publish an archive only after stored-byte verification
+- [x] 01-01-PLAN.md — Pin one source and publish an archive only after stored-byte verification
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -132,7 +132,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Verified Transaction Foundation | 0/TBD | Not started | - |
+| 1. Verified Transaction Foundation | 1/3 | In Progress|  |
 | 2. Verified Archive Shelf & Manual Freeing | 0/TBD | Not started | - |
 | 3. Guarded Restore & Instrument Recovery | 0/TBD | Not started | - |
 | 4. Split Review & Confirmed Intent | 0/TBD | Not started | - |
