@@ -458,6 +458,21 @@ test('corrupt published bundle remains visible as an unverified diagnostic', t =
   assert.ok(!JSON.stringify(items).includes(libraryRoot));
 });
 
+test('corrupt legacy archive remains visible as an unverified diagnostic', t => {
+  const { libraryRoot } = tempRoots(t);
+  const legacy = path.join(libraryRoot, 'broken.opz');
+  fs.writeFileSync(legacy, Buffer.from('not a project'));
+
+  assert.deepEqual(subject.scanLibrary({ songs: {} }, libraryRoot, null), [{
+    file: 'broken.opz',
+    bundle: false,
+    auto: false,
+    modified: fs.statSync(legacy).mtime,
+    verified: false,
+    errorCode: 'ARCHIVE_PARSE_FAILED',
+  }]);
+});
+
 test('attribute values and archive slots reject stored markup injection', t => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   const attrSource = /function attr\(s\) \{[^\n]+\}/.exec(html)[0];

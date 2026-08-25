@@ -215,13 +215,13 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
     for (const f of fs.readdirSync(dir)) {
       if (f.startsWith('.')) continue;
       const full = path.join(dir, f);
-      let bundle = false;
+      let bundle = null;
       let modified = null;
       try {
         const st = fs.statSync(full);
+        modified = st.mtime;
         if (st.isDirectory() && fs.existsSync(path.join(full, 'song.opz'))) {
           bundle = true;
-          modified = st.mtime;
           const buf = fs.readFileSync(path.join(full, 'song.opz'));
           let info = {};
           try { info = JSON.parse(fs.readFileSync(path.join(full, 'info.json'), 'utf8')); } catch {}
@@ -240,7 +240,8 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
             verified,
             meta: meta.songs[hashFile(buf)] || null,
           });
-        } else if (f.endsWith('.opz')) { // legacy flat file
+        } else if (st.isFile() && f.endsWith('.opz')) { // legacy flat file
+          bundle = false;
           const buf = fs.readFileSync(full);
           const parsed = parseProject(buf);
           items.push({
@@ -251,7 +252,7 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
           });
         }
       } catch {
-        if (bundle) items.push({ file: f, bundle: true, auto, modified, verified: false, errorCode: 'ARCHIVE_PARSE_FAILED' });
+        if (bundle !== null) items.push({ file: f, bundle, auto, modified, verified: false, errorCode: 'ARCHIVE_PARSE_FAILED' });
       }
     }
   };
