@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 current_phase: 2
 current_phase_name: Verified Archive Shelf & Manual Freeing
-status: planning
-stopped_at: Phase 2 UI-SPEC approved
-last_updated: "2026-08-25T14:39:43.380Z"
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-08-25T21:28:07.324Z"
 last_activity: 2026-08-26
-last_activity_desc: Phase 01 complete, transitioned to Phase 2
-state_head: baf16d510488c83bb3d1a440fffe84fda3044356
+last_activity_desc: Phase 2 execution started
+state_head: a8d091ea38cf5787e235907f2521d06e70617946
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
   percent: 17
 ---
 
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 ## Current Position
 
-Phase: 2 — Verified Archive Shelf & Manual Freeing
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-26 — Phase 01 complete, transitioned to Phase 2
+Phase: 2 (Verified Archive Shelf & Manual Freeing) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-08-26 — Phase 2 execution started
 
-Progress: [████████████████████] 3/3 plans (100%)
+Progress: [████████████████████] 3/3 plans ([██░░░░░░░░] 17%)
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [████████████████████] 3/3 pla
 | Phase 01 P01 | 10 min | 2 tasks | 3 files |
 | Phase 01 P02 | 13 min | 2 tasks | 3 files |
 | Phase 01 P03 | 7 min | 2 tasks | 3 files |
+| Phase 02-verified-archive-shelf-manual-freeing P01 | 11min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - Phase 1: Failed or corrupt archives remain visible only as sanitized, restore-ineligible diagnostics.
 - Phase 5: Synthesized split halves remain restore-ineligible until their recorded device acceptance check passes.
 - Phase 6: Automatic clearing remains disabled until one method passes fixture and device checks; manual clearing remains the fallback.
+- [Phase 2]: Schema 1 stores only bounded public metadata, sanitized provenance, and current-byte project/snippet/whole-grid evidence.
+- [Phase 2]: Project verification, archive completeness, restore eligibility, and manual-free eligibility remain independent derived facts.
 
 ### Pending Todos
 
@@ -91,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-25T14:39:43.312Z
-Stopped at: Phase 2 UI-SPEC approved
-Resume file: .planning/phases/02-verified-archive-shelf-manual-freeing/02-UI-SPEC.md
+Last session: 2026-08-25T21:28:07.283Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None

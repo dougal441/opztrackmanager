@@ -9,7 +9,7 @@
 
 - [x] **ARCH-01**: User can start an archive from a slot whose source bytes and mounted-device identity are captured once for the entire operation
 - [x] **ARCH-02**: User receives a verified archive only after the staged `song.opz` is reread, byte-compared with the captured source, reparsed successfully, and recorded with its SHA-256 and byte length
-- [ ] **ARCH-03**: User's archive records project metadata, snippet portability, instrument-grid context, source slot, creation time, and verification evidence in a versioned manifest
+- [x] **ARCH-03**: User's archive records project metadata, snippet portability, instrument-grid context, source slot, creation time, and verification evidence in a versioned manifest
 - [x] **ARCH-04**: User retains the source slot unchanged whenever archive capture or verification fails
 - [ ] **ARCH-05**: User can browse verified archives on a first-class shelf with name, tags, matrix, provenance, snippet availability, and verification status
 
@@ -72,7 +72,7 @@
 |-------------|-------|--------|
 | ARCH-01 | Phase 1 | Complete |
 | ARCH-02 | Phase 1 | Complete |
-| ARCH-03 | Phase 2 | Pending |
+| ARCH-03 | Phase 2 | Complete |
 | ARCH-04 | Phase 1 | Complete |
 | ARCH-05 | Phase 2 | Pending |
 | REST-01 | Phase 3 | Pending |
