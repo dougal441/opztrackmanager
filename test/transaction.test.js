@@ -132,6 +132,56 @@ test('archive UI sends mutation header and confirms source intent', () => {
   assert.match(html, /STATE\.source/);
 });
 
+test('source status UI identifies source and active operation accessibly', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /id="source"[^>]+role="status"[^>]+aria-live="polite"/);
+  assert.match(html, /mounted OP-Z/);
+  assert.match(html, /local fixture/);
+  assert.match(html, /no source/);
+  assert.match(html, /STATE\.mutation/);
+  assert.match(html, /mutationBusy\.operation/);
+  assert.match(html, /active[^<]+slot/i);
+});
+
+test('mutation controls share one operation-aware busy wrapper', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /async function runMutation\(operation, callback\)/);
+  assert.match(html, /try \{ return await callback\(\); \}[\s\S]+finally/);
+  assert.match(html, /querySelectorAll\('\[data-mutation\]'\)/);
+  for (const action of ['backup', 'doSwap', 'restore', 'removePack', 'importPack', 'snapshotInstruments', 'downloadPack']) {
+    assert.match(html, new RegExp('data-mutation="[^"]+"[^>]+onclick="' + action + '\\('), action);
+  }
+  assert.match(html, /runMutation\('archive slot ' \+ slot/);
+});
+
+test('result guidance remains source-specific and visible', t => {
+  const local = tempRoots(t);
+  const localResult = subject.archiveCapturedProject(subject.captureSource(1, local.source), {
+    libraryRoot: local.libraryRoot,
+    name: 'Local guidance',
+    deep: false,
+  });
+  assert.match(localResult.guidance, /No OP-Z (?:data )?changed/);
+  assert.match(localResult.guidance, /refresh/i);
+
+  const mounted = tempRoots(t);
+  const mountedResult = subject.archiveCapturedProject(subject.captureSource(1, {
+    ...mounted.source,
+    device: true,
+    label: 'OP-Z',
+  }), {
+    libraryRoot: mounted.libraryRoot,
+    name: 'Mounted guidance',
+    deep: false,
+  });
+  assert.match(mountedResult.guidance, /eject/i);
+  assert.match(mountedResult.guidance, /reconnect/i);
+  assert.match(mountedResult.guidance, /refresh/i);
+
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /j\.guidance/);
+});
+
 test('request boundary rejects forged and malformed mutation requests', async t => {
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
