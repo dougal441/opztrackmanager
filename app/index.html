@@ -188,7 +188,7 @@
     <button class="tab active" id="tab-songs" onclick="setTab('songs')">songs</button>
     <button class="tab" id="tab-inst" onclick="setTab('inst')">instruments</button>
   </nav>
-  <div id="source"></div>
+  <div id="source" role="status" aria-live="polite"></div>
   <button class="iconbtn" onclick="load()" title="refresh">↻</button>
 </header>
 
@@ -203,7 +203,7 @@
     <section>
       <h2>swap slots</h2>
       <div class="libRow"><select id="swapA"></select><select id="swapB"></select>
-        <button class="btn" disabled title="Phase 3 adds verified recovery before slot writes" onclick="doSwap()">swap</button></div>
+        <button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified recovery before slot writes" onclick="doSwap()">swap</button></div>
     </section>
   </aside>
 </main>
@@ -212,10 +212,10 @@
   <div>
     <table class="inst" id="instTable"></table>
     <div class="instBar" id="instBar">
-      <span class="instHint">Click a pack to audition it. Click another slot in the same column to move or swap. <span class="mono">~</span> marks factory content.</span>
+      <span class="instHint">Click a pack to audition it. Instrument changes return in Phase 3 with verified recovery. <span class="mono">~</span> marks factory content.</span>
     </div>
     <div class="instBar">
-      <button class="btn ghost" disabled title="Phase 3 adds guarded source capture" onclick="snapshotInstruments()">snapshot all instruments → library</button>
+      <button class="btn ghost" data-mutation="unavailable" disabled title="Phase 3 adds guarded source capture" onclick="snapshotInstruments()">snapshot all instruments → library</button>
     </div>
   </div>
   <aside>
@@ -245,11 +245,11 @@
   </aside>
 </main>
 </div>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 'use strict';
-let STATE = null, AIFS = null, SETTINGS = {}, mutationBusy = false;
+let STATE = null, AIFS = null, SETTINGS = {}, mutationBusy = null, lastStatus = '';
 let expanded = JSON.parse(localStorage.getItem('opz.expanded') || 'null');
 let tab = localStorage.getItem('opz.tab') || 'songs';
 let selCell = null, pkPage = 1;
@@ -265,26 +265,36 @@ const TCOL = { kick:'var(--t-kick)', snare:'var(--t-snare)', hihat:'var(--t-hiha
 
 function toast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.style.display = 'block';
+  lastStatus = msg; t.textContent = msg; t.style.display = 'block';
   clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3200);
 }
 async function api(path, body) {
   const r = await fetch(path, body ? { method: 'POST', headers: {'Content-Type':'application/json','X-OPZ-Mutation':'1'}, body: JSON.stringify(body) } : {});
   const j = await r.json();
-  if (j.error) { toast(j.error); throw new Error(j.error); }
+  if (j.error) {
+    const message = [j.error, j.guidance || sourceGuidance(j.source, 'failure')].filter(Boolean).join(' · ');
+    toast(message); throw new Error(message);
+  }
   return j;
 }
-async function runMutation(callback) {
+async function runMutation(operation, callback) {
   if (mutationBusy) return;
-  mutationBusy = true;
-  document.querySelectorAll('[data-mutation]').forEach(button => button.disabled = true);
+  mutationBusy = { operation, source: STATE && STATE.source };
+  render();
   try { return await callback(); }
   finally {
-    mutationBusy = false;
-    document.querySelectorAll('[data-mutation]').forEach(button => button.disabled = false);
+    mutationBusy = null;
+    render();
   }
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function sourceGuidance(source, outcome) {
+  if (!source) return 'Reconnect the source, then refresh.';
+  if (source.device) return outcome === 'failure'
+    ? 'Reconnect the OP-Z, refresh, and retry.'
+    : 'Eject the OP-Z before disconnecting it; reconnect it and refresh before continuing.';
+  return 'No OP-Z changed. Refresh and retry with the local fixture.';
+}
 
 async function load() {
   STATE = await api('/api/state');
@@ -302,11 +312,22 @@ function setTab(t) {
 function render() {
   setTab(tab);
   const srcEl = document.getElementById('source');
-  if (!STATE.source) srcEl.innerHTML = '<span class="st">no device — connect OP-Z in disk mode<br>(hold a track key while powering on)</span>';
+  if (!STATE.source) srcEl.innerHTML = '<span class="st">no source — connect OP-Z in disk mode<br>(hold a track key while powering on)</span>';
   else srcEl.innerHTML = STATE.source.device
-    ? '<span class="st on">OP-Z connected · disk mode<br>changes write to device</span>'
-    : '<span class="st copy">offline copy · plug in OP-Z<br>in disk mode to go live</span>';
+    ? '<span class="st on">mounted OP-Z · ' + esc(STATE.source.label) + '<br>archive reads device; device data will not change</span>'
+    : '<span class="st copy">local fixture · ' + esc(STATE.source.label) + '<br>no OP-Z data will change</span>';
+  const currentMutation = mutationBusy || STATE.mutation;
+  if (currentMutation) {
+    const activeSource = currentMutation.source || STATE.source || {};
+    srcEl.innerHTML += '<br><span class="active">active: ' + esc(currentMutation.operation) +
+      ' · ' + esc(activeSource.device ? 'mounted OP-Z' : 'local fixture') +
+      (activeSource.slot ? ' · slot ' + activeSource.slot : '') + '</span>';
+  }
+  if (lastStatus) srcEl.innerHTML += '<br><span class="result">' + esc(lastStatus) + '</span>';
   renderSlots(); renderLibrary(); renderInstruments();
+  document.querySelectorAll('[data-mutation]').forEach(button => {
+    button.disabled = Boolean(currentMutation) || button.dataset.mutation === 'unavailable';
+  });
   for (const id of ['swapA','swapB']) document.getElementById(id).innerHTML = slotOptions();
   if (SETTINGS.op1funEmail) document.getElementById('op1email').value = SETTINGS.op1funEmail;
   if (SETTINGS.op1funToken) document.getElementById('op1token').value = SETTINGS.op1funToken;
@@ -426,7 +447,7 @@ function detailHtml(s) {
       '<textarea placeholder="Where you left off, what to try next…" ' +
         'onchange="saveMeta(\'' + s.hash + '\',{notes:this.value})">' + esc(s.meta && s.meta.notes || '') + '</textarea>' +
       '<div class="lbl">library</div>' +
-      '<button class="btn acc" data-mutation onclick="backup(' + s.slot + ')">save song to library</button>' +
+      '<button class="btn acc" data-mutation="archive" onclick="backup(' + s.slot + ')">save song to library</button>' +
     '</div>';
 }
 function toggle(slot) {
@@ -456,9 +477,9 @@ async function backup(slot) {
   const source = STATE.source ? STATE.source.label : 'no source';
   const song = s.meta && s.meta.name || name || 'untitled';
   if (!confirm('Archive slot ' + slot + ' — "' + song + '"?\nSource: ' + source + '\nDevice data: will not change.')) return;
-  await runMutation(async () => {
+  await runMutation('archive slot ' + slot, async () => {
     const r = await api('/api/backup', { slot, name, deep });
-    toast('verified → ' + r.file + ' · ' + r.guidance);
+    toast('verified → ' + r.file + ' · ' + (r.guidance || sourceGuidance(r.source, 'success')));
     await load();
   });
 }
@@ -479,7 +500,7 @@ function renderLibrary() {
       '<div class="libSub">' + it.tempo + ' BPM · ' + it.usedPatterns.length + ' pat' +
         (it.fromSlot ? ' · from ' + String(it.fromSlot).padStart(2,'0') : '') + ' · ' + new Date(it.modified).toLocaleDateString() + '</div>' +
       '<div class="libRow"><select id="' + rid + '">' + slotOptions() + '</select>' +
-      '<button class="btn" disabled title="Phase 3 adds verified target recovery" data-f="' + esc(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
+      '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified target recovery" data-f="' + esc(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
     lib.appendChild(d);
   }
   for (const it of snaps) {
@@ -557,14 +578,14 @@ function renderInstruments() {
       (item
         ? '<span style="font-size:12px">' + esc(item.name) + (item.size || item.engine ? '' : ' · factory content — audio lives in the device') + '</span>' +
           (item.engine || !item.size ? '' : '<button class="btn" onclick="audition(\'' + selCell.type + '\',' + selCell.slot + ')">▶ audition</button>') +
-          '<button class="btn ghost" disabled title="Phase 3 adds verified instrument recovery" onclick="removePack()">remove → trash</button>'
+          '<button class="btn ghost" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" onclick="removePack()">remove → trash</button>'
         : '<select id="importSel" style="max-width:220px"><option>loading…</option></select>' +
-          '<button class="btn" disabled title="Phase 3 adds verified instrument recovery" onclick="importPack()">import .aif</button>' +
+          '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" onclick="importPack()">import .aif</button>' +
           '<span class="instHint">or pick one from the pack browser →</span>') +
       '<button class="btn ghost" onclick="selCell=null;render()">done</button>';
     if (!item) loadAifs();
   } else {
-    bar.innerHTML = '<span class="instHint">Click a pack to select · click it again to deselect · second click in the same column moves or swaps · <span class="mono">~</span> marks factory content · eject before unplugging.</span>';
+    bar.innerHTML = '<span class="instHint">Click a pack to select or audition · instrument move and swap return in Phase 3 with verified recovery · <span class="mono">~</span> marks factory content.</span>';
   }
 }
 async function loadAifs() {
@@ -575,14 +596,9 @@ async function loadAifs() {
 async function cellClick(type, slot) {
   const item = STATE.instruments[type][slot - 1];
   if (selCell && selCell.type === type && selCell.slot !== slot) {
-    const a = selCell.slot, itemA = STATE.instruments[type][a - 1], itemB = item;
+    const a = selCell.slot, itemA = STATE.instruments[type][a - 1];
     if (!itemA) { selCell = { type, slot }; return render(); }
-    const verb = itemB ? 'Swap' : 'Move';
-    if (confirm(verb + ' ' + TYPE_LABELS[type] + ' "' + itemA.name + '" ' + a + ' → ' + slot + '?')) {
-      await api('/api/instruments/move', { type, from: a, to: slot });
-      selCell = null; AIFS = null; packBuffers.clear();
-      toast(verb.toLowerCase() + 'ed'); return load();
-    }
+    toast('Instrument move and swap return in Phase 3 with verified recovery.');
     selCell = null; return render();
   }
   const wasSel = selCell && selCell.type === type && selCell.slot === slot;
@@ -624,7 +640,7 @@ async function browsePacks(page) {
       d.innerHTML =
         (pk.preview ? '<button class="pkPlay" onclick="previewPack(this,\'' + esc(pk.preview) + '\')">▶</button>' : '<span></span>') +
         '<div><div class="pkName">' + esc(pk.name) + '</div><div class="pkUser">' + esc(pk.user) + ' · <span class="pkType">' + pk.type + '</span></div></div>' +
-        (target ? '<button class="btn" disabled title="Phase 3 adds verified instrument recovery" data-p="' + esc(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
+        (target ? '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" data-p="' + esc(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
                 : '<span class="pkType">select empty slot</span>');
       list.appendChild(d);
     }

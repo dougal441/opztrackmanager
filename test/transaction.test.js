@@ -139,7 +139,8 @@ test('source status UI identifies source and active operation accessibly', () =>
   assert.match(html, /local fixture/);
   assert.match(html, /no source/);
   assert.match(html, /STATE\.mutation/);
-  assert.match(html, /mutationBusy\.operation/);
+  assert.match(html, /mutationBusy \|\| STATE\.mutation/);
+  assert.match(html, /currentMutation\.operation/);
   assert.match(html, /active[^<]+slot/i);
 });
 

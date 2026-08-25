@@ -382,7 +382,7 @@ function publicSource(source) {
 }
 function sourceGuidance(source) {
   return source.device
-    ? 'Verified archive saved. Eject the OP-Z before disconnecting it.'
+    ? 'Verified archive saved. Eject the OP-Z before disconnecting it; reconnect it and refresh before continuing.'
     : 'Verified archive saved. No OP-Z data changed. Refresh after connecting the OP-Z.';
 }
 function captureSource(slot, source) {
@@ -494,6 +494,7 @@ function archiveCapturedProject(captured, options) {
     const failure = /^(SOURCE_|ARCHIVE_)/.test(error.code || '')
       ? error
       : archiveError('ARCHIVE_FAILED', 'Archive could not be verified.');
+    failure.source = publicSource(captured);
     retainFailedDraft(draft, libraryRoot, captured, options.operation, failure);
     throw failure;
   }
@@ -746,7 +747,8 @@ const server = http.createServer(async (req, res) => {
     return fs.createReadStream(full).pipe(res);
   } catch (e) {
     const safe = Number.isInteger(e.status) && /^[A-Z][A-Z0-9_]+$/.test(e.code || '')
-      ? { error: e.message, code: e.code, guidance: e.guidance, ...(e.active ? { active: e.active } : {}) }
+      ? { error: e.message, code: e.code, guidance: e.guidance,
+        ...(e.source ? { source: e.source } : {}), ...(e.active ? { active: e.active } : {}) }
       : { error: 'Operation failed safely.', code: 'OPERATION_FAILED', guidance: 'Refresh and retry. If the source disconnected, reconnect it first.' };
     return json(res, Number.isInteger(e.status) ? e.status : 500, safe);
   }
