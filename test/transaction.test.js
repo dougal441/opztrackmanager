@@ -122,6 +122,20 @@ test('deep archive verifies every stored sample-pack byte', t => {
   fs.writeFileSync(path.join(bundle, 'samplepacks', '1-kick', '01', 'kick.aif'), Buffer.from('corrupt'));
   assert.equal(subject.scanLibrary({ songs: {} }, roots.libraryRoot, null)[0].verified, false);
   assert.throws(() => subject.findBundle(result.file, false, roots.libraryRoot, null), error => error.code === 'BUNDLE_UNVERIFIED');
+
+  const changed = tempRoots(t);
+  const changedPack = path.join(changed.sourceRoot, 'samplepacks', '1-kick', '01');
+  fs.mkdirSync(changedPack, { recursive: true });
+  const changedFile = path.join(changedPack, 'kick.aif');
+  fs.writeFileSync(changedFile, Buffer.from('before'));
+  assert.throws(() => subject.archiveCapturedProject(subject.captureSource(1, changed.source), {
+    libraryRoot: changed.libraryRoot,
+    name: 'Changing source',
+    deep: true,
+    beforeVerify() { fs.writeFileSync(changedFile, Buffer.from('after')); },
+  }), error => error.code === 'ARCHIVE_MANIFEST_MISMATCH');
+  assert.deepEqual(visibleBundles(changed.libraryRoot), []);
+  assert.equal(subject.scanDrafts(changed.libraryRoot)[0].errorCode, 'ARCHIVE_MANIFEST_MISMATCH');
 });
 
 test('binary bytes and undersized input never publish an invalid archive', t => {
