@@ -330,12 +330,13 @@ The exact helper and error names are [ASSUMED]; positive validation plus contain
 | A2 | Verification evidence can temporarily live in existing `info.json` until the versioned Phase 2 manifest. | Architecture | Medium; planner should avoid locking a manifest schema in Phase 1. |
 | A3 | A required custom mutation header plus JSON content type and Origin/Fetch-Metadata checks is acceptable for the localhost browser API. | Security Domain | Low; it requires one small `api()` header change and one server guard, with no user-visible setup. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Interim evidence field names**
    - What we know: SHA-256 and byte length must be recorded; the complete versioned manifest is Phase 2. [VERIFIED: `01-CONTEXT.md:9,25`; `.planning/REQUIREMENTS.md:11-12`]
    - What's unclear: exact interim `info.json` key names are not locked. [ASSUMED]
    - Recommendation: store a small nested verification object now and let Phase 2 wrap/migrate it without changing the verification primitive. [ASSUMED]
+   - Resolution: exact nested verification keys remain executor discretion; the required SHA-256 and byte-length values and verification ordering are fixed by the plans.
 
 No user decision is needed before planning; all open naming details are within the agent's stated discretion. [VERIFIED: `01-CONTEXT.md:34-36`]
 
