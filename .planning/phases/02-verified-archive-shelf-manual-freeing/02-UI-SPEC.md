@@ -1,7 +1,7 @@
 ---
 phase: 2
 slug: verified-archive-shelf-manual-freeing
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-08-26
@@ -120,6 +120,8 @@ The Archive Shelf contains, in this order:
 1. Page heading, one-sentence explanation, and verified archive count.
 2. Verified archive list, newest first by manifest creation time.
 3. Archive Diagnostics after a 48px section break and divider.
+
+The `Verified archives` heading and live verified count are the primary visual anchor; rows remain quieter so evidence status, not decoration, drives hierarchy.
 
 No search, filters, pagination, restore controls, or automatic-clear controls are added in this phase.
 
@@ -258,11 +260,11 @@ No shadcn or third-party registry code is permitted by the project stack, so no 
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS with non-blocking type-scale recommendation
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS with non-blocking adjacent-size recommendation
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-08-26
