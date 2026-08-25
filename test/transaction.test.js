@@ -37,16 +37,18 @@ function visibleBundles(libraryRoot) {
   return fs.readdirSync(libraryRoot).filter(name => !name.startsWith('.'));
 }
 
-function requestJson(server, pathname, payload) {
+function request(server, pathname, options = {}) {
   const address = server.address();
   return new Promise((resolve, reject) => {
-    const body = payload && JSON.stringify(payload);
+    const body = options.body === undefined
+      ? (options.payload === undefined ? null : JSON.stringify(options.payload))
+      : options.body;
     const req = http.request({
       host: '127.0.0.1',
       port: address.port,
       path: pathname,
-      method: body ? 'POST' : 'GET',
-      headers: body ? { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } : {},
+      method: options.method || (body === null ? 'GET' : 'POST'),
+      headers: options.headers || (body === null ? {} : { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' }),
     }, res => {
       let body = '';
       res.on('data', chunk => body += chunk);
@@ -56,8 +58,12 @@ function requestJson(server, pathname, payload) {
       });
     });
     req.on('error', reject);
-    req.end(body);
+    req.end(body === null ? undefined : body);
   });
+}
+
+function requestJson(server, pathname, payload) {
+  return request(server, pathname, payload === undefined ? {} : { payload });
 }
 
 test('verified archive tracer publishes reread, parsed bytes with evidence', t => {
@@ -115,6 +121,83 @@ test('archive UI sends mutation header and confirms source intent', () => {
   assert.match(html, /Archive slot/);
   assert.match(html, /Device data/);
   assert.match(html, /STATE\.source/);
+});
+
+test('request boundary rejects forged and malformed mutation requests', async t => {
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  const host = `127.0.0.1:${subject.server.address().port}`;
+  const valid = JSON.stringify({ slot: 0, name: '', deep: false });
+  const cases = [
+    [{ body: valid, headers: { 'Content-Type': 'text/plain', 'X-OPZ-Mutation': '1' } }, 415, 'JSON_REQUIRED'],
+    [{ body: valid, headers: { 'Content-Type': 'application/json' } }, 403, 'MUTATION_HEADER_REQUIRED'],
+    [{ body: valid, headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1', 'Sec-Fetch-Site': 'cross-site' } }, 403, 'CROSS_SITE_REQUEST'],
+    [{ body: valid, headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1', Origin: 'http://example.test' } }, 403, 'ORIGIN_MISMATCH'],
+    [{ body: valid, headers: { 'Content-Type': 'application/json; charset=iso-8859-1', 'X-OPZ-Mutation': '1' } }, 415, 'UNSUPPORTED_ENCODING'],
+    [{ body: '{', headers: { 'Content-Type': 'application/json', 'X-OPZ-Mutation': '1' } }, 400, 'INVALID_JSON'],
+  ];
+  for (const [options, status, code] of cases) {
+    const result = await request(subject.server, '/api/backup', options);
+    assert.equal(result.status, status);
+    assert.equal(result.body.code, code);
+    assert.ok(!JSON.stringify(result.body).includes(process.cwd()));
+  }
+  const accepted = await request(subject.server, '/api/backup', {
+    body: valid,
+    headers: { Host: host, Origin: `http://${host}`, 'Content-Type': 'application/json; charset=utf-8', 'X-OPZ-Mutation': '1' },
+  });
+  assert.equal(accepted.status, 400);
+  assert.equal(accepted.body.code, 'INVALID_SLOT');
+});
+
+test('input validation rejects invalid types before filesystem access', () => {
+  for (const slot of [0, 11, '1.0', 1.5, undefined]) {
+    assert.throws(() => subject.validateSlot(slot), error => error.code === 'INVALID_SLOT');
+  }
+  assert.equal(subject.validateSlot(1), 1);
+  assert.equal(subject.validateSlot(10), 10);
+  for (const value of [0, 1, 'false', null, undefined]) {
+    assert.throws(() => subject.validateBoolean(value, 'deep'), error => error.code === 'INVALID_BOOLEAN');
+  }
+  assert.equal(subject.validateBoolean(false, 'deep'), false);
+  assert.equal(subject.validatePackType('1-kick'), '1-kick');
+  assert.throws(() => subject.validatePackType('9-path'), error => error.code === 'INVALID_PACK_TYPE');
+  assert.throws(() => subject.validateString('x'.repeat(121), 'name', 120), error => error.code === 'INVALID_STRING');
+});
+
+test('bundle containment rejects path escapes and unverified items', t => {
+  const { libraryRoot } = tempRoots(t);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-outside-'));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  const fixture = fs.readFileSync(FIXTURE);
+  const writeBundle = (name, evidence = true) => {
+    const dir = path.join(libraryRoot, name);
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'song.opz'), fixture);
+    if (evidence) fs.writeFileSync(path.join(dir, 'info.json'), JSON.stringify({ verification: {
+      verified: true,
+      sha256: crypto.createHash('sha256').update(fixture).digest('hex'),
+      bytes: fixture.length,
+    } }));
+    return dir;
+  };
+  writeBundle('verified');
+  writeBundle('legacy', false);
+  writeBundle('mismatch');
+  const mismatch = JSON.parse(fs.readFileSync(path.join(libraryRoot, 'mismatch', 'info.json')));
+  mismatch.verification.sha256 = '0'.repeat(64);
+  fs.writeFileSync(path.join(libraryRoot, 'mismatch', 'info.json'), JSON.stringify(mismatch));
+  fs.writeFileSync(path.join(outside, 'song.opz'), fixture);
+  fs.symlinkSync(outside, path.join(libraryRoot, 'escaped'));
+
+  assert.equal(subject.findBundle('verified', false, libraryRoot, null).dir, path.join(libraryRoot, 'verified'));
+  for (const id of ['', '.', '..', '/tmp/x', '../x', 'x/y', 'x\\y']) {
+    assert.throws(() => subject.validateBundleId(id), error => error.code === 'INVALID_BUNDLE_ID');
+  }
+  assert.throws(() => subject.resolveChild(libraryRoot, 'escaped'), error => error.code === 'PATH_OUTSIDE_ROOT');
+  assert.throws(() => subject.findBundle('legacy', false, libraryRoot, null), error => error.code === 'BUNDLE_UNVERIFIED');
+  assert.throws(() => subject.findBundle('mismatch', false, libraryRoot, null), error => error.code === 'BUNDLE_UNVERIFIED');
+  assert.throws(() => subject.findBundle('.failed', false, libraryRoot, null), error => error.code === 'INVALID_BUNDLE_ID');
 });
 
 test('source substitution stops the pinned transaction without resolving a fallback', async t => {
