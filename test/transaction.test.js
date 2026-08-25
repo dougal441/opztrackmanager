@@ -247,6 +247,30 @@ test('input validation rejects invalid types before filesystem access', () => {
   assert.throws(() => subject.validateString('x'.repeat(121), 'name', 120), error => error.code === 'INVALID_STRING');
 });
 
+test('metadata boundary rejects unsupported shapes and normalizes invalid persistence', async t => {
+  for (const fields of [
+    { unknown: 'value' },
+    { name: { unsafe: true } },
+    { kit: { kick: 0 } },
+    { kit: { unknown: 1 } },
+  ]) assert.throws(() => subject.validateMetadataFields(fields), error => error.code === 'INVALID_METADATA');
+  assert.deepEqual(subject.validateMetadataFields({
+    name: 'Song', tags: '', notes: '', wav: '', wavMatch: 'manual', kit: { kick: 1, chord: 10 },
+  }).kit, { kick: 1, chord: 10 });
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-meta-'));
+  const file = path.join(dir, 'meta.json');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(file, JSON.stringify({ songs: [] }));
+  assert.deepEqual(subject.loadMeta(file), { songs: {} });
+
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  const result = await requestJson(subject.server, '/api/meta', { hash: 'a'.repeat(16), fields: { name: 42 } });
+  assert.equal(result.status, 400);
+  assert.equal(result.body.code, 'INVALID_METADATA');
+});
+
 test('audio rejects invalid ranges without crashing the server', async t => {
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });

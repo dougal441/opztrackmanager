@@ -25,6 +25,7 @@ const MUSIC_DIR = path.dirname(ROOT);
 const PORT = 8765;
 
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
+const META_TRACKS = ['kick', 'snare', 'hihat', 'sample', 'bass', 'lead', 'arp', 'chord'];
 const mutationRouteInventory = Object.freeze({
   enabled: ['/api/backup'],
   unavailable: [
@@ -51,8 +52,15 @@ for (const d of [LIB_DIR, AUTO_DIR, TRASH_DIR, DATA_DIR]) fs.mkdirSync(d, { recu
 try { fs.chmodSync(SETTINGS_FILE, 0o600); } catch {}
 
 // ---------- metadata ----------
-function loadMeta() {
-  try { return JSON.parse(fs.readFileSync(META_FILE, 'utf8')); }
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+function loadMeta(file = META_FILE) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return isPlainObject(meta) && isPlainObject(meta.songs) ? meta : { songs: {} };
+  }
   catch { return { songs: {} }; }
 }
 function saveMeta(meta) { fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2)); }
@@ -348,7 +356,7 @@ function readBody(req) {
     });
   });
 }
-function safeName(s) { return (s || 'untitled').replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 60) || 'untitled'; }
+function safeName(s) { return (typeof s === 'string' ? s : 'untitled').replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 60) || 'untitled'; }
 function stamp() { return new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19); }
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
 function requestError(status, code, publicMessage, guidance = 'Correct the request and retry.') {
@@ -435,6 +443,24 @@ function parseByteRange(header, size) {
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd)
       || start >= size || requestedEnd < start) return null;
   return { start, end: Math.min(requestedEnd, size - 1) };
+}
+function validateMetadataFields(fields) {
+  const limits = { name: 120, tags: 1000, notes: 10000, wav: 2000, wavMatch: 40 };
+  if (!isPlainObject(fields) || JSON.stringify(fields).length > 20000
+      || Object.keys(fields).some(key => !Object.hasOwn(limits, key) && key !== 'kit')) {
+    throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
+  }
+  for (const [key, value] of Object.entries(fields)) {
+    if (key === 'kit') {
+      if (!isPlainObject(value) || Object.keys(value).some(track => !META_TRACKS.includes(track))
+          || Object.values(value).some(slot => !Number.isInteger(slot) || slot < 1 || slot > 10)) {
+        throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
+      }
+    } else if (typeof value !== 'string' || value.length > limits[key] || value.includes('\0')) {
+      throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
+    }
+  }
+  return fields;
 }
 function validateBackup(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw requestError(400, 'INVALID_REQUEST', 'Invalid archive request.');
@@ -685,13 +711,10 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/meta' && req.method === 'POST') {
       const body = await readBody(req);
       validateString(body.hash, 'hash', 64, false);
-      if (!/^[a-f0-9]{16,64}$/i.test(body.hash) || !body.fields || typeof body.fields !== 'object' || Array.isArray(body.fields)
-          || JSON.stringify(body.fields).length > 20000) {
+      if (!/^[a-f0-9]{16,64}$/i.test(body.hash)) {
         throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
       }
-      for (const [name, value] of Object.entries(body.fields)) {
-        if (typeof value === 'string') validateString(value, name, 10000);
-      }
+      validateMetadataFields(body.fields);
       const meta = loadMeta();
       meta.songs[body.hash] = { ...(meta.songs[body.hash] || {}), ...body.fields, updated: new Date().toISOString() };
       saveMeta(meta);
@@ -860,6 +883,8 @@ module.exports = {
   validatePackType,
   validateBundleId,
   parseByteRange,
+  validateMetadataFields,
+  loadMeta,
   saveSettings,
   resolveChild,
   findBundle,
