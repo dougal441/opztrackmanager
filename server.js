@@ -230,6 +230,152 @@ function manifestMatches(root, manifest) {
 
 // ---------- library (bundles) ----------
 // Bundle = folder in library/: song.opz + info.json + optional samplepacks/
+function archiveDiagnostic(errorCode, diagnostic) {
+  return {
+    verified: false,
+    complete: false,
+    restoreEligible: false,
+    manualFreeEligible: false,
+    diagnostic,
+    errorCode,
+  };
+}
+function isIsoTime(value) {
+  if (typeof value !== 'string') return false;
+  try { return new Date(value).toISOString() === value; }
+  catch { return false; }
+}
+function isArchiveRelative(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 500
+    && !value.includes('\\') && !value.includes('\0') && !path.posix.isAbsolute(value)
+    && path.posix.normalize(value) === value
+    && value.split('/').every(part => part && part !== '.' && part !== '..');
+}
+function isEvidence(value) {
+  return isPlainObject(value) && Object.keys(value).length === 3
+    && isArchiveRelative(value.path)
+    && Number.isSafeInteger(value.bytes) && value.bytes >= 0
+    && typeof value.sha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sha256);
+}
+function hasExactKeys(value, keys) {
+  return isPlainObject(value) && Object.keys(value).sort().join('\0') === keys.slice().sort().join('\0');
+}
+function readArchiveEvidence(root, evidence) {
+  if (!isEvidence(evidence)) throw new Error('invalid evidence');
+  const base = fs.realpathSync(root);
+  let current = base;
+  for (const part of evidence.path.split('/')) {
+    current = path.join(current, part);
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink()) throw new Error('symlink evidence');
+  }
+  const stat = fs.lstatSync(current);
+  if (!stat.isFile()) throw new Error('non-file evidence');
+  const relative = path.relative(base, fs.realpathSync(current));
+  if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('escaped evidence');
+  const bytes = fs.readFileSync(current);
+  if (bytes.length !== evidence.bytes || sha256(bytes) !== evidence.sha256) throw new Error('evidence mismatch');
+  return bytes;
+}
+function validateArchiveInfo(info) {
+  if (!isPlainObject(info)) throw Object.assign(new Error('manifest malformed'), { archiveCode: 'ARCHIVE_CORRUPT' });
+  if (info.schemaVersion === undefined) throw Object.assign(new Error('legacy manifest'), { archiveCode: 'ARCHIVE_LEGACY' });
+  if (info.schemaVersion !== 1) throw Object.assign(new Error('unsupported manifest'), { archiveCode: 'ARCHIVE_UNSUPPORTED' });
+  const required = ['schemaVersion', 'created', 'source', 'project', 'metadata', 'snippet', 'samplepacks'];
+  if (!required.every(key => Object.hasOwn(info, key))) {
+    throw Object.assign(new Error('partial manifest'), { archiveCode: 'ARCHIVE_PARTIAL' });
+  }
+  if (!hasExactKeys(info, required) || !isIsoTime(info.created)
+      || !hasExactKeys(info.source, ['device', 'label', 'slot'])
+      || typeof info.source.device !== 'boolean'
+      || typeof info.source.label !== 'string' || !info.source.label || info.source.label.length > 80 || info.source.label.includes('\0')
+      || !Number.isInteger(info.source.slot) || info.source.slot < 1 || info.source.slot > 10
+      || !hasExactKeys(info.project, ['path', 'bytes', 'sha256', 'checked'])
+      || info.project.path !== 'song.opz'
+      || !isEvidence({ path: info.project.path, bytes: info.project.bytes, sha256: info.project.sha256 })
+      || !isIsoTime(info.project.checked)) {
+    throw Object.assign(new Error('invalid manifest'), { archiveCode: 'ARCHIVE_CORRUPT' });
+  }
+  const metadata = info.metadata;
+  if (!hasExactKeys(metadata, ['name', 'tags', 'notes', 'kit'])
+      || typeof metadata.name !== 'string' || metadata.name.length > 120 || metadata.name.includes('\0')
+      || typeof metadata.tags !== 'string' || metadata.tags.length > 1000 || metadata.tags.includes('\0')
+      || typeof metadata.notes !== 'string' || metadata.notes.length > 10000 || metadata.notes.includes('\0')
+      || !isPlainObject(metadata.kit) || Object.keys(metadata.kit).some(track => !META_TRACKS.includes(track))
+      || Object.values(metadata.kit).some(slot => !Number.isInteger(slot) || slot < 1 || slot > 10)) {
+    throw Object.assign(new Error('invalid metadata'), { archiveCode: 'ARCHIVE_CORRUPT' });
+  }
+  const snippetStatuses = new Set(['included', 'unlinked', 'missing', 'unavailable']);
+  if (!isPlainObject(info.snippet) || !snippetStatuses.has(info.snippet.status)
+      || (info.snippet.status === 'included'
+        ? !hasExactKeys(info.snippet, ['status', 'path', 'bytes', 'sha256'])
+          || !isEvidence({ path: info.snippet.path, bytes: info.snippet.bytes, sha256: info.snippet.sha256 })
+        : !hasExactKeys(info.snippet, ['status']))) {
+    throw Object.assign(new Error('invalid snippet'), { archiveCode: 'ARCHIVE_CORRUPT' });
+  }
+  if (!hasExactKeys(info.samplepacks, ['captured', 'files']) || typeof info.samplepacks.captured !== 'boolean'
+      || !Array.isArray(info.samplepacks.files) || info.samplepacks.files.some(item => !isEvidence(item))
+      || new Set(info.samplepacks.files.map(item => item.path)).size !== info.samplepacks.files.length
+      || (!info.samplepacks.captured && info.samplepacks.files.length !== 0)) {
+    throw Object.assign(new Error('invalid sample packs'), { archiveCode: 'ARCHIVE_CORRUPT' });
+  }
+  return info;
+}
+function classifyArchive(dir) {
+  try {
+    const rootStat = fs.lstatSync(dir);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('invalid bundle');
+    const manifestPath = path.join(dir, 'info.json');
+    if (!fs.existsSync(manifestPath)) return archiveDiagnostic('ARCHIVE_PARTIAL', 'partial');
+    const manifestStat = fs.lstatSync(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink() || manifestStat.size > 2e6) throw new Error('invalid manifest');
+    let info;
+    try { info = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); }
+    catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+    try { validateArchiveInfo(info); }
+    catch (error) {
+      const code = error.archiveCode || 'ARCHIVE_CORRUPT';
+      const status = code === 'ARCHIVE_LEGACY' ? 'legacy' : code === 'ARCHIVE_UNSUPPORTED' ? 'unsupported'
+        : code === 'ARCHIVE_PARTIAL' ? 'partial' : 'corrupt';
+      return archiveDiagnostic(code, status);
+    }
+    let project;
+    try { project = readArchiveEvidence(dir, { path: info.project.path, bytes: info.project.bytes, sha256: info.project.sha256 }); }
+    catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+    let parsed;
+    try { parsed = parseProject(project); }
+    catch { return archiveDiagnostic('ARCHIVE_PARSE_FAILED', 'corrupt'); }
+    if (info.samplepacks.captured) {
+      const packRoot = path.join(dir, 'samplepacks');
+      try {
+        if (!fs.lstatSync(packRoot).isDirectory() || !manifestMatches(packRoot, info.samplepacks.files)) throw new Error('pack mismatch');
+      } catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+    }
+    if (info.snippet.status === 'included') {
+      try { readArchiveEvidence(dir, { path: info.snippet.path, bytes: info.snippet.bytes, sha256: info.snippet.sha256 }); }
+      catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+    }
+    const complete = info.samplepacks.captured && ['included', 'unlinked'].includes(info.snippet.status);
+    return {
+      verified: true,
+      complete,
+      restoreEligible: false,
+      manualFreeEligible: false,
+      hash: hashFile(project),
+      tempo: parsed.tempo,
+      usedPatterns: parsed.usedPatterns,
+      created: info.created,
+      source: info.source,
+      fromSlot: info.source.slot,
+      project: info.project,
+      metadata: info.metadata,
+      name: info.metadata.name,
+      snippet: info.snippet,
+      samplepacks: info.samplepacks,
+      hasInstruments: info.samplepacks.captured,
+    };
+  } catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
+}
 function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   const items = [];
   const scanDir = (dir, auto) => {
@@ -239,28 +385,15 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
       let bundle = null;
       let modified = null;
       try {
-        const st = fs.statSync(full);
+        const st = fs.lstatSync(full);
         modified = st.mtime;
-        if (st.isDirectory() && fs.existsSync(path.join(full, 'song.opz'))) {
+        if (st.isDirectory() || st.isSymbolicLink()) {
           bundle = true;
-          const buf = fs.readFileSync(path.join(full, 'song.opz'));
-          let info = {};
-          try { info = JSON.parse(fs.readFileSync(path.join(full, 'info.json'), 'utf8')); } catch {}
-          const parsed = parseProject(buf);
-          const evidence = info.verification || {};
-          const storedPacks = path.join(full, 'samplepacks');
-          const verified = evidence.verified === true
-            && evidence.bytes === buf.length
-            && evidence.sha256 === sha256(buf)
-            && (info.deep !== true || (fs.existsSync(storedPacks) && manifestMatches(storedPacks, info.manifest)));
+          const classification = classifyArchive(full);
           items.push({
-            file: f, bundle: true, auto, hash: hashFile(buf),
-            modified: st.mtime, tempo: parsed.tempo, usedPatterns: parsed.usedPatterns,
-            name: info.name, fromSlot: Number.isInteger(info.fromSlot) && info.fromSlot >= 1 && info.fromSlot <= 10 ? info.fromSlot : null,
-            hasInstruments: fs.existsSync(path.join(full, 'samplepacks')),
-            instruments: info.instruments || null,
-            verified,
-            meta: meta.songs[hashFile(buf)] || null,
+            file: f, bundle: true, auto, modified: st.mtime,
+            ...classification,
+            meta: classification.hash ? meta.songs[classification.hash] || null : null,
           });
         } else if (st.isFile() && f.endsWith('.opz')) { // legacy flat file
           bundle = false;
@@ -269,12 +402,12 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
           items.push({
             file: f, bundle: false, auto, hash: hashFile(buf),
             modified: st.mtime, tempo: parsed.tempo, usedPatterns: parsed.usedPatterns,
-            verified: false,
+            ...archiveDiagnostic('ARCHIVE_LEGACY', 'legacy'),
             meta: meta.songs[hashFile(buf)] || null,
           });
         }
       } catch {
-        if (bundle !== null) items.push({ file: f, bundle, auto, modified, verified: false, errorCode: 'ARCHIVE_PARSE_FAILED' });
+        if (bundle !== null) items.push({ file: f, bundle, auto, modified, ...archiveDiagnostic('ARCHIVE_PARSE_FAILED', 'corrupt') });
       }
     }
   };
@@ -657,21 +790,12 @@ function findBundle(file, auto, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   validateBoolean(auto, 'auto');
   const id = validateBundleId(file);
   const dir = resolveChild(auto ? autoRoot : libraryRoot, id);
-  let stored;
-  let info;
   try {
     if (!fs.statSync(dir).isDirectory()) throw new Error('not a bundle');
-    const opz = resolveChild(dir, 'song.opz');
-    stored = fs.readFileSync(opz);
-    parseProject(stored);
-    info = JSON.parse(fs.readFileSync(resolveChild(dir, 'info.json'), 'utf8'));
-    const evidence = info.verification || {};
-    if (evidence.verified !== true || evidence.bytes !== stored.length || evidence.sha256 !== sha256(stored)
-        || (info.deep === true && (!fs.existsSync(path.join(dir, 'samplepacks'))
-          || !manifestMatches(path.join(dir, 'samplepacks'), info.manifest)))) {
-      throw new Error('verification mismatch');
-    }
-    return { dir, opz, bundle: true, buffer: stored };
+    const classification = classifyArchive(dir);
+    if (!classification.verified) throw new Error('verification mismatch');
+    const opz = path.join(dir, 'song.opz');
+    return { dir, opz, bundle: true, buffer: fs.readFileSync(opz), classification };
   } catch (error) {
     if (/^INVALID_/.test(error.code || '') || error.code === 'PATH_OUTSIDE_ROOT') throw error;
     throw requestError(409, 'BUNDLE_UNVERIFIED', 'Library bundle is not verified and cannot be restored.');
@@ -965,6 +1089,7 @@ module.exports = {
   saveSettings,
   resolveChild,
   findBundle,
+  classifyArchive,
   captureSource,
   assertCapturedSource,
   withMutation,

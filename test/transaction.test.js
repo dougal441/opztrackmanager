@@ -154,7 +154,8 @@ test('archive classification keeps manifest verification completeness and unicod
     created: '2026-08-25T13:00:00.000Z',
     samplepacks: { captured: true, files: [] },
   });
-  writeSchemaBundle(libraryRoot, 'complete', complete, fixture);
+  const completeDir = writeSchemaBundle(libraryRoot, 'complete', complete, fixture);
+  fs.mkdirSync(path.join(completeDir, 'samplepacks'));
 
   const items = subject.scanLibrary({ songs: {} }, libraryRoot, null);
   const projectItem = items.find(item => item.file === 'project-only');
@@ -178,6 +179,8 @@ test('manifest diagnostics reject unsupported partial traversal symlink and stor
     ['partial', schemaInfo(fixture, { metadata: undefined }), 'ARCHIVE_PARTIAL'],
     ['traversal', schemaInfo(fixture, { project: { ...schemaInfo(fixture).project, path: '../song.opz' } }), 'ARCHIVE_CORRUPT'],
     ['tampered', schemaInfo(fixture, { project: { ...schemaInfo(fixture).project, sha256: '0'.repeat(64) } }), 'ARCHIVE_CORRUPT'],
+    ['bad-status', schemaInfo(fixture, { snippet: { status: 'portable' } }), 'ARCHIVE_CORRUPT'],
+    ['oversized', schemaInfo(fixture, { metadata: { name: 'x'.repeat(121), tags: '', notes: '', kit: {} } }), 'ARCHIVE_CORRUPT'],
   ];
   for (const [name, info, errorCode] of cases) {
     writeSchemaBundle(libraryRoot, name, info, fixture);
@@ -189,6 +192,13 @@ test('manifest diagnostics reject unsupported partial traversal symlink and stor
     assert.equal(item.errorCode, errorCode, name);
     assert.throws(() => subject.findBundle(name, false, libraryRoot, null), error => error.code === 'BUNDLE_UNVERIFIED');
   }
+
+  const malformed = path.join(libraryRoot, 'malformed');
+  fs.mkdirSync(malformed);
+  fs.writeFileSync(path.join(malformed, 'song.opz'), fixture);
+  fs.writeFileSync(path.join(malformed, 'info.json'), '{');
+  assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)
+    .find(item => item.file === 'malformed').errorCode, 'ARCHIVE_CORRUPT');
 
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-manifest-outside-'));
   t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
