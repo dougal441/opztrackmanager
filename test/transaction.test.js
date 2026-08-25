@@ -1102,20 +1102,95 @@ test('state reports sanitized active mutation and separate drafts', async t => {
   await active;
 });
 
-test('library UI segregates verified archives from unverified diagnostics', () => {
+test('archive shelf is the only archive renderer and songs show counts only', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
-  const body = /function renderLibrary\(\) \{([\s\S]*?)\n\}\nasync function restore/.exec(html)[1];
-  assert.match(body, /STATE\.library\.filter\(i => i\.verified === true\)/);
-  assert.match(body, /STATE\.library\.filter\(i => i\.verified !== true\)/);
-  assert.match(body, /STATE\.drafts/);
-  assert.match(body, /id="verifiedArchives"/);
-  assert.match(body, /id="unverifiedDrafts"/);
-  assert.match(body, /verified:false/);
+  assert.equal((html.match(/function renderArchives\(/g) || []).length, 1);
+  const library = /function renderLibrary\(\) \{([\s\S]*?)\n\}/.exec(html)[1];
+  assert.match(library, /verifiedCount/);
+  assert.match(library, /diagnosticCount/);
+  assert.match(library, /open archive shelf/);
+  assert.doesNotMatch(library, /<details|matrixSvg|restore\(/);
+});
 
-  const unverified = /for \(const it of unverified\)([\s\S]*?)for \(const draft/.exec(body)[1];
-  assert.doesNotMatch(unverified, /onclick="restore|<select/);
-  const drafts = /for \(const draft of STATE\.drafts\)([\s\S]*)/.exec(body)[1];
-  assert.doesNotMatch(drafts, /onclick="restore|<select/);
+test('tab semantics provide archive shelf roving focus', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /<nav class="tabs" role="tablist"/);
+  for (const [id, controls, label] of [
+    ['tab-songs', 'view-songs', 'songs'],
+    ['tab-archives', 'view-archives', 'archive shelf'],
+    ['tab-inst', 'view-inst', 'instruments'],
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*role="tab"[^>]*aria-controls="${controls}"[^>]*>${label}<`));
+  }
+  assert.match(html, /ArrowLeft/);
+  assert.match(html, /ArrowRight/);
+  assert.match(html, /Home/);
+  assert.match(html, /End/);
+  assert.match(html, /event\.key === 'Enter' \|\| event\.key === ' '/);
+});
+
+test('shelf states cover loading error empty and zero one many counts', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /id="view-archives"/);
+  assert.match(html, /aria-busy="true"/);
+  assert.ok((html.match(/class="skel"/g) || []).length >= 3);
+  assert.match(html, /No verified archives yet/);
+  assert.match(html, /Open a song, then choose “archive complete song”\./);
+  assert.match(html, /No archive diagnostics\./);
+  assert.match(html, /Archive Shelf couldn’t be refreshed\. Refresh to try again\. Existing archives remain on this Mac\./);
+  assert.match(html, /countLabel\([^,]+, 'verified archive'/);
+  assert.match(html, /countLabel\([^,]+, 'archive diagnostic'/);
+});
+
+test('archive shelf populated and partial rows expose matrix and four evidence groups', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const body = /function renderArchives\(\) \{([\s\S]*?)\n\}\n/.exec(html)[1];
+  assert.match(body, /<details/);
+  assert.match(body, /<summary/);
+  assert.match(body, /matrixSvg\(item/);
+  assert.match(body, /project only/);
+  assert.match(body, /Project verification/);
+  assert.match(body, /Song snapshot/);
+  assert.match(body, /Portability/);
+  assert.match(body, /Provenance and action/);
+  assert.match(body, /sample-pack file evidence/);
+  assert.match(body, /Not recorded/);
+});
+
+test('archive escaping overflow and reduced motion contracts are explicit', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /Step activity matrix for/);
+  assert.match(html, /overflow-wrap: anywhere/);
+  assert.match(html, /\.evidenceScroll[^}]*overflow-x: auto/);
+  assert.match(html, /@media \(max-width: 900px\)/);
+  assert.match(html, /@media \(max-width: 720px\)/);
+  assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(html, /html \{ scroll-behavior: auto/);
+  const body = /function renderArchives\(\) \{([\s\S]*?)\n\}\n/.exec(html)[1];
+  assert.match(body, /esc\(item\.metadata\.name/);
+  assert.match(body, /attr\(item\.created/);
+  assert.match(body, /esc\(file\.path/);
+  assert.match(body, /esc\(file\.sha256/);
+});
+
+test('diagnostic actions stay absent from archive shelf diagnostics', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const body = /const diagnosticMarkup = ([\s\S]*?);\n\s*root\.innerHTML/.exec(html)[1];
+  assert.match(body, /needs attention/);
+  assert.doesNotMatch(body, /<button|<select|restore|manual.free|target.slot/i);
+});
+
+test('archive success always captures complete grid then opens and focuses shelf', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const body = /async function backup\(slot\) \{([\s\S]*?)\n\}\nfunction renderLibrary/.exec(html)[1];
+  assert.match(html, />archive complete song<\/button>/);
+  assert.match(body, /Device data will not change\./);
+  assert.match(body, /complete sample-pack grid/);
+  assert.match(body, /api\('\/api\/backup', \{ slot, name, deep: true \}\)/);
+  assert.match(body, /verified archive created · open Archive Shelf/);
+  assert.match(body, /setTab\('archives'\)/);
+  assert.match(body, /dataset\.archiveId === r\.file/);
+  assert.match(body, /\.focus\(\)/);
 });
 
 test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, async t => {
