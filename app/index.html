@@ -53,7 +53,7 @@
          padding: 7px 13px; cursor: pointer; transition: all .18s; white-space: nowrap; }
   .btn:hover { border-color: var(--ink); }
   .btn:active { transform: scale(.97); }
-  .btn:disabled { opacity: .45; cursor: wait; transform: none; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
   .btn:focus-visible, .tab:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
     outline: 2px solid var(--accent); outline-offset: 1px; }
   .btn.acc { background: var(--ink); border-color: var(--ink); color: var(--bg); }
@@ -203,7 +203,7 @@
     <section>
       <h2>swap slots</h2>
       <div class="libRow"><select id="swapA"></select><select id="swapB"></select>
-        <button class="btn" onclick="doSwap()">swap</button></div>
+        <button class="btn" disabled title="Phase 3 adds verified recovery before slot writes" onclick="doSwap()">swap</button></div>
     </section>
   </aside>
 </main>
@@ -215,7 +215,7 @@
       <span class="instHint">Click a pack to audition it. Click another slot in the same column to move or swap. <span class="mono">~</span> marks factory content.</span>
     </div>
     <div class="instBar">
-      <button class="btn ghost" onclick="snapshotInstruments()">snapshot all instruments → library</button>
+      <button class="btn ghost" disabled title="Phase 3 adds guarded source capture" onclick="snapshotInstruments()">snapshot all instruments → library</button>
     </div>
   </div>
   <aside>
@@ -479,7 +479,7 @@ function renderLibrary() {
       '<div class="libSub">' + it.tempo + ' BPM · ' + it.usedPatterns.length + ' pat' +
         (it.fromSlot ? ' · from ' + String(it.fromSlot).padStart(2,'0') : '') + ' · ' + new Date(it.modified).toLocaleDateString() + '</div>' +
       '<div class="libRow"><select id="' + rid + '">' + slotOptions() + '</select>' +
-      '<button class="btn" data-f="' + esc(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
+      '<button class="btn" disabled title="Phase 3 adds verified target recovery" data-f="' + esc(it.file) + '" onclick="restore(this.dataset.f,' + it.auto + ',' + it.hasInstruments + ',\'' + rid + '\')">load</button></div>';
     lib.appendChild(d);
   }
   for (const it of snaps) {
@@ -557,9 +557,9 @@ function renderInstruments() {
       (item
         ? '<span style="font-size:12px">' + esc(item.name) + (item.size || item.engine ? '' : ' · factory content — audio lives in the device') + '</span>' +
           (item.engine || !item.size ? '' : '<button class="btn" onclick="audition(\'' + selCell.type + '\',' + selCell.slot + ')">▶ audition</button>') +
-          '<button class="btn ghost" onclick="removePack()">remove → trash</button>'
+          '<button class="btn ghost" disabled title="Phase 3 adds verified instrument recovery" onclick="removePack()">remove → trash</button>'
         : '<select id="importSel" style="max-width:220px"><option>loading…</option></select>' +
-          '<button class="btn" onclick="importPack()">import .aif</button>' +
+          '<button class="btn" disabled title="Phase 3 adds verified instrument recovery" onclick="importPack()">import .aif</button>' +
           '<span class="instHint">or pick one from the pack browser →</span>') +
       '<button class="btn ghost" onclick="selCell=null;render()">done</button>';
     if (!item) loadAifs();
@@ -624,7 +624,7 @@ async function browsePacks(page) {
       d.innerHTML =
         (pk.preview ? '<button class="pkPlay" onclick="previewPack(this,\'' + esc(pk.preview) + '\')">▶</button>' : '<span></span>') +
         '<div><div class="pkName">' + esc(pk.name) + '</div><div class="pkUser">' + esc(pk.user) + ' · <span class="pkType">' + pk.type + '</span></div></div>' +
-        (target ? '<button class="btn" data-p="' + esc(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
+        (target ? '<button class="btn" disabled title="Phase 3 adds verified instrument recovery" data-p="' + esc(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
                 : '<span class="pkType">select empty slot</span>');
       list.appendChild(d);
     }

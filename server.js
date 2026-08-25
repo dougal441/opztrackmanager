@@ -25,8 +25,27 @@ const MUSIC_DIR = path.dirname(ROOT);
 const PORT = 8765;
 
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
+const mutationRouteInventory = Object.freeze({
+  enabled: ['/api/backup'],
+  unavailable: [
+    '/api/restore', '/api/swap', '/api/clear-slot',
+    '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import',
+    '/api/instruments/snapshot', '/api/op1fun/download',
+  ],
+});
+const unavailableMutationGuidance = Object.freeze({
+  '/api/restore': 'Restore returns in Phase 3 with verified target recovery and output checks.',
+  '/api/swap': 'Slot swapping returns in Phase 3 with verified recovery capture.',
+  '/api/clear-slot': 'Automatic clearing remains disabled until Phase 6 hardware validation.',
+  '/api/instruments/move': 'Instrument changes return in Phase 3 with verified instrument recovery.',
+  '/api/instruments/remove': 'Instrument changes return in Phase 3 with verified instrument recovery.',
+  '/api/instruments/import': 'Instrument changes return in Phase 3 with verified instrument recovery.',
+  '/api/instruments/snapshot': 'Instrument snapshots return in Phase 3 with guarded source capture.',
+  '/api/op1fun/download': 'Pack installation returns in Phase 3 with verified instrument recovery.',
+});
 
 let activeMutation = null;
+const testHooks = {};
 
 for (const d of [LIB_DIR, AUTO_DIR, TRASH_DIR, DATA_DIR]) fs.mkdirSync(d, { recursive: true });
 
@@ -129,10 +148,6 @@ function packSlotDir(type, slot) {
 }
 function slotFiles(dir) {
   return fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => !f.startsWith('.')) : [];
-}
-function moveSlotContents(fromDir, toDir) {
-  fs.mkdirSync(toDir, { recursive: true });
-  for (const f of slotFiles(fromDir)) fs.renameSync(path.join(fromDir, f), path.join(toDir, f));
 }
 function copyDir(from, to) {
   fs.mkdirSync(to, { recursive: true });
@@ -412,8 +427,10 @@ function assertCapturedSource(captured) {
 }
 async function withMutation(operation, callback) {
   if (activeMutation) {
-    throw transactionError('MUTATION_CONFLICT', 'Another mutation is already running.',
+    const conflict = transactionError('MUTATION_CONFLICT', 'Another mutation is already running.',
       'Wait for the current operation to finish, then refresh and retry.', 409);
+    conflict.active = { operation: activeMutation.operation, started: activeMutation.started, source: activeMutation.source };
+    throw conflict;
   }
   const mutation = { operation: String(operation).slice(0, 120), started: new Date().toISOString(), source: null };
   activeMutation = mutation;
@@ -486,18 +503,6 @@ function projFile(slot) {
   if (!src) throw new Error('no source');
   return path.join(src.path, `project${String(slot).padStart(2, '0')}.opz`);
 }
-function autoBackupSlot(slot, meta) {
-  const f = projFile(slot);
-  if (!fs.existsSync(f)) return null;
-  const buf = fs.readFileSync(f);
-  const hash = hashFile(buf);
-  const name = (meta.songs[hash] && meta.songs[hash].name) || `slot${slot}`;
-  const dir = path.join(AUTO_DIR, `${stamp()}_${safeName(name)}`);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.copyFileSync(f, path.join(dir, 'song.opz'));
-  fs.writeFileSync(path.join(dir, 'info.json'), JSON.stringify({ name, fromSlot: slot, auto: true, instruments: instrumentsSummary() }, null, 2));
-  return path.basename(dir);
-}
 function resolveChild(root, id) {
   validateBundleId(id);
   let base;
@@ -547,17 +552,6 @@ function fetchText(u, headers) {
     }).on('error', reject);
   });
 }
-function fetchBuffer(u, headers) {
-  return new Promise((resolve, reject) => {
-    https.get(u, { headers: { 'User-Agent': 'opz-manager/1.0', ...(headers || {}) } }, r => {
-      if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
-        return fetchBuffer(new URL(r.headers.location, u).href, headers).then(resolve, reject);
-      }
-      if (r.statusCode >= 400) { r.resume(); return reject(new Error('op1.fun HTTP ' + r.statusCode)); }
-      const chunks = []; r.on('data', c => chunks.push(c)); r.on('end', () => resolve(Buffer.concat(chunks)));
-    }).on('error', reject);
-  });
-}
 // Parse patch cards out of op1.fun listing HTML. Structure: links to
 // /users/<user>/patches/<slug>, preview mp3 s3 URLs, drum/synth svg icons nearby.
 function parseOp1FunListing(html) {
@@ -595,6 +589,9 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
   try {
     if (req.method === 'POST') requireMutationRequest(req);
+    if (req.method === 'POST' && unavailableMutationGuidance[p]) {
+      throw requestError(409, 'PHASE_UNAVAILABLE', 'This write is not available yet.', unavailableMutationGuidance[p]);
+    }
     if (p === '/api/state') {
       const meta = loadMeta();
       return json(res, 200, {
@@ -632,15 +629,16 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/backup' && req.method === 'POST') {
       const body = validateBackup(await readBody(req));
       return await withMutation(`archive slot ${body.slot}`, async mutation => {
+        if (testHooks.beforeBackupCapture) await testHooks.beforeBackupCapture();
         const meta = loadMeta();
-        const source = getSource();
+        const source = (testHooks.sourceResolver || getSource)();
         if (!source) throw new Error('no source');
-        const captured = captureSource(body.slot, source);
+        const captured = (testHooks.captureSource || captureSource)(body.slot, source);
         mutation.source = publicSource(captured);
         const hash = hashFile(captured.buffer);
         const name = body.name || (meta.songs[hash] && meta.songs[hash].name) || `slot${body.slot}`;
         const result = archiveCapturedProject(captured, {
-          libraryRoot: LIB_DIR,
+          libraryRoot: testHooks.libraryRoot || LIB_DIR,
           name,
           deep: body.deep,
           operation: mutation.operation,
@@ -649,80 +647,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, result);
       });
     }
-    if (p === '/api/restore' && req.method === 'POST') {
-      const body = await readBody(req); // {file, auto, slot, restoreInstruments}
-      validateBundleId(body.file);
-      validateBoolean(body.auto, 'auto');
-      validateSlot(body.slot);
-      validateBoolean(body.restoreInstruments, 'restoreInstruments');
-      const meta = loadMeta();
-      const b = findBundle(body.file, body.auto);
-      const backedUp = autoBackupSlot(body.slot, meta);
-      fs.copyFileSync(b.opz, projFile(body.slot));
-      let instrumentsRestored = false;
-      if (body.restoreInstruments && b.bundle && fs.existsSync(path.join(b.dir, 'samplepacks'))) {
-        const src = getSource();
-        copyDir(path.join(b.dir, 'samplepacks'), path.join(src.root, 'samplepacks'));
-        instrumentsRestored = true;
-      }
-      return json(res, 200, { ok: true, previousBackedUpTo: backedUp, instrumentsRestored });
-    }
-    if (p === '/api/swap' && req.method === 'POST') {
-      const body = await readBody(req);
-      validateSlot(body.a); validateSlot(body.b);
-      if (body.a === body.b) throw requestError(400, 'INVALID_SWAP', 'Swap requires two different slots.');
-      const fa = projFile(body.a), fb = projFile(body.b);
-      const ba = fs.readFileSync(fa), bb = fs.readFileSync(fb);
-      fs.writeFileSync(fa, bb); fs.writeFileSync(fb, ba);
-      return json(res, 200, { ok: true });
-    }
-    if (p === '/api/clear-slot' && req.method === 'POST') {
-      // backup then overwrite with an empty-ish project? OP-Z has no "empty" file concept in disk mode;
-      // safest is: backup to library, leave file. We just do the backup and tell the user to clear on device.
-      const body = await readBody(req);
-      validateSlot(body.slot);
-      const meta = loadMeta();
-      const backedUp = autoBackupSlot(body.slot, meta);
-      return json(res, 200, { ok: true, backedUp, note: 'Slot backed up. Clear the project on the device itself (project + erase) — the OP-Z rebuilds the file.' });
-    }
-
     // ---- instruments ----
-    if (p === '/api/instruments/move' && req.method === 'POST') {
-      const body = await readBody(req); // {type, from, to}
-      validatePackType(body.type); validateSlot(body.from); validateSlot(body.to);
-      if (body.from === body.to) throw requestError(400, 'INVALID_MOVE', 'Move requires two different slots.');
-      const a = packSlotDir(body.type, body.from), bdir = packSlotDir(body.type, body.to);
-      const tmp = bdir + '.tmp-swap';
-      if (slotFiles(bdir).length) { // swap
-        moveSlotContents(bdir, tmp);
-        moveSlotContents(a, bdir);
-        moveSlotContents(tmp, a);
-        fs.rmdirSync(tmp);
-      } else {
-        moveSlotContents(a, bdir);
-      }
-      return json(res, 200, { ok: true });
-    }
-    if (p === '/api/instruments/remove' && req.method === 'POST') {
-      const body = await readBody(req); // {type, slot}
-      validatePackType(body.type); validateSlot(body.slot);
-      const dir = packSlotDir(body.type, body.slot);
-      const dest = path.join(TRASH_DIR, `${stamp()}_${body.type}-${body.slot}`);
-      moveSlotContents(dir, dest);
-      return json(res, 200, { ok: true, movedTo: path.basename(dest) });
-    }
-    if (p === '/api/instruments/import' && req.method === 'POST') {
-      const body = await readBody(req); // {type, slot, source: relative-to-Music path of .aif}
-      validatePackType(body.type); validateSlot(body.slot); validateString(body.source, 'source', 1024, false);
-      const srcFile = path.join(MUSIC_DIR, body.source || '');
-      if (!srcFile.startsWith(MUSIC_DIR) || (body.source || '').includes('..')) return json(res, 403, { error: 'bad path' });
-      if (!/\.(aif|aiff)$/i.test(srcFile)) return json(res, 400, { error: 'OP-Z accepts .aif sample packs only' });
-      const dir = packSlotDir(body.type, body.slot);
-      if (slotFiles(dir).length) return json(res, 400, { error: 'slot occupied — remove or move first' });
-      fs.mkdirSync(dir, { recursive: true });
-      fs.copyFileSync(srcFile, path.join(dir, path.basename(srcFile)));
-      return json(res, 200, { ok: true });
-    }
     if (p === '/api/instruments/aifs') {
       // .aif files available for import (Music folder + instrument trash)
       const out = [];
@@ -738,14 +663,6 @@ const server = http.createServer(async (req, res) => {
       walk(MUSIC_DIR, 0, MUSIC_DIR, 'music');
       return json(res, 200, out);
     }
-    if (p === '/api/instruments/snapshot' && req.method === 'POST') {
-      const src = getSource();
-      const dest = path.join(LIB_DIR, `instruments_${stamp()}`);
-      copyDir(path.join(src.root, 'samplepacks'), path.join(dest, 'samplepacks'));
-      fs.writeFileSync(path.join(dest, 'info.json'), JSON.stringify({ type: 'instrument-snapshot', created: new Date().toISOString(), instruments: instrumentsSummary() }, null, 2));
-      return json(res, 200, { ok: true, file: path.basename(dest) });
-    }
-
     // ---- sample pack audio + info ----
     if (p === '/api/pack/audio' || p === '/api/pack/info') {
       const type = url.searchParams.get('type');
@@ -797,32 +714,6 @@ const server = http.createServer(async (req, res) => {
       const html = await fetchText(target);
       return json(res, 200, { patches: parseOp1FunListing(html), page: parseInt(page, 10) });
     }
-    if (p === '/api/op1fun/download' && req.method === 'POST') {
-      const body = await readBody(req); // { patchPath: "/users/x/patches/y", type, slot }
-      validateString(body.patchPath, 'patchPath', 500, false);
-      validatePackType(body.type); validateSlot(body.slot);
-      let settings = {}; try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
-      if (!settings.op1funEmail || !settings.op1funToken) {
-        return json(res, 400, { error: 'op1.fun account needed: add email + API token in settings (op1.fun → account settings)' });
-      }
-      const dir = packSlotDir(body.type, body.slot);
-      if (slotFiles(dir).length) return json(res, 400, { error: 'slot occupied — remove or move first' });
-      const m = /\/users\/([^/]+)\/patches\/([^/?#]+)/.exec(body.patchPath || '');
-      if (!m) return json(res, 400, { error: 'bad patch path' });
-      const apiUrl = `https://api.op1.fun/v1/users/${m[1]}/patches/${m[2]}`;
-      const j = JSON.parse(await fetchText(apiUrl, {
-        'X-User-Email': settings.op1funEmail, 'X-User-Token': settings.op1funToken, 'Accept': 'application/json',
-      }));
-      const fileUrl = (j.data && j.data.links && j.data.links.file)
-        || (JSON.stringify(j).match(/https?:\/\/[^"]+\.aif[^"]*/) || [])[0];
-      if (!fileUrl) return json(res, 502, { error: 'no .aif download link in op1.fun response — check token' });
-      const fileBuf = await fetchBuffer(fileUrl);
-      const name = safeName((j.data && j.data.attributes && j.data.attributes.name) || m[2]) + '.aif';
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, name), fileBuf);
-      return json(res, 200, { ok: true, file: name });
-    }
-
     // ---- audio ----
     if (p === '/audio') {
       const rel = url.searchParams.get('path') || '';
@@ -855,7 +746,7 @@ const server = http.createServer(async (req, res) => {
     return fs.createReadStream(full).pipe(res);
   } catch (e) {
     const safe = Number.isInteger(e.status) && /^[A-Z][A-Z0-9_]+$/.test(e.code || '')
-      ? { error: e.message, code: e.code, guidance: e.guidance }
+      ? { error: e.message, code: e.code, guidance: e.guidance, ...(e.active ? { active: e.active } : {}) }
       : { error: 'Operation failed safely.', code: 'OPERATION_FAILED', guidance: 'Refresh and retry. If the source disconnected, reconnect it first.' };
     return json(res, Number.isInteger(e.status) ? e.status : 500, safe);
   }
@@ -874,6 +765,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  mutationRouteInventory,
+  testHooks,
   requireMutationRequest,
   requestError,
   validateSlot,
