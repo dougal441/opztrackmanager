@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Verified Transaction Foundation
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-08-25T12:46:25.698Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-08-25T13:02:36.094Z"
 last_activity: 2026-08-25
 last_activity_desc: Phase 01 execution started
-state_head: b00692b03d30741342bbfa4de03dabde60f7d824
+state_head: 7bdc35c205ab9418b6a99e47c8ad525d32f8713f
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 ## Current Position
 
 Phase: 01 (Verified Transaction Foundation) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-25 — Phase 01 execution started
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 10 min | 2 tasks | 3 files |
+| Phase 01 P02 | 13 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 01]: Failed archive drafts live under library/.failed with sanitized failure.json evidence and never enter library results.
 - [Phase 01]: Library items are verified only when SHA-256 and byte length match the reread parsable song.opz; legacy items remain visible but unverified.
 - [Phase 01]: The mutation callback receives sanitized state so active source facts can be reported without exposing captured paths or bytes.
+- [Phase 01]: Every POST passes one JSON, mutation-header, Fetch Metadata, and Origin/Host check before route dispatch.
+- [Phase 01]: Bundle selection requires a canonical contained directory whose reread bytes parse and match SHA-256/length evidence.
+- [Phase 01]: Restore, swap, clear, instrument writes, and pack installation remain explicit 409 fences until their recovery-owning phases.
 
 ### Pending Todos
 
@@ -90,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-25T12:46:25.690Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-08-25T13:02:36.085Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
