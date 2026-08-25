@@ -292,6 +292,11 @@ test('metadata boundary rejects unsupported shapes and normalizes invalid persis
 
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
+  for (const body of [null, [], 'invalid', 1]) {
+    const invalid = await requestJson(subject.server, '/api/meta', body);
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.code, 'INVALID_METADATA');
+  }
   const result = await requestJson(subject.server, '/api/meta', { hash: 'a'.repeat(16), fields: { name: 42 } });
   assert.equal(result.status, 400);
   assert.equal(result.body.code, 'INVALID_METADATA');

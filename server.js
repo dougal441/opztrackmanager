@@ -718,6 +718,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/meta' && req.method === 'POST') {
       const body = await readBody(req);
+      if (!isPlainObject(body)) throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
       validateString(body.hash, 'hash', 64, false);
       if (!/^[a-f0-9]{16,64}$/i.test(body.hash)) {
         throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
