@@ -399,6 +399,22 @@ function validateBundleId(id) {
   }
   return id;
 }
+function parseByteRange(header, size) {
+  if (typeof header !== 'string' || !Number.isSafeInteger(size) || size <= 0) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header);
+  if (!match || (!match[1] && !match[2])) return null;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    return Number.isSafeInteger(suffix) && suffix > 0
+      ? { start: Math.max(0, size - suffix), end: size - 1 }
+      : null;
+  }
+  const start = Number(match[1]);
+  const requestedEnd = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd)
+      || start >= size || requestedEnd < start) return null;
+  return { start, end: Math.min(requestedEnd, size - 1) };
+}
 function validateBackup(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw requestError(400, 'INVALID_REQUEST', 'Invalid archive request.');
   validateSlot(body.slot);
@@ -763,15 +779,22 @@ const server = http.createServer(async (req, res) => {
       const stat = fs.statSync(full);
       const range = req.headers.range;
       if (range) {
-        const m = /bytes=(\d+)-(\d*)/.exec(range);
-        const start = parseInt(m[1], 10);
-        const end = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+        const parsedRange = parseByteRange(range, stat.size);
+        if (!parsedRange) {
+          res.writeHead(416, { 'Content-Range': `bytes */${stat.size}`, 'Accept-Ranges': 'bytes' });
+          return res.end();
+        }
+        const { start, end } = parsedRange;
         res.writeHead(206, { 'Content-Type': MIME[ext] || 'application/octet-stream',
           'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1 });
-        return fs.createReadStream(full, { start, end }).pipe(res);
+        const stream = fs.createReadStream(full, { start, end });
+        stream.on('error', () => res.destroy());
+        return stream.pipe(res);
       }
       res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Content-Length': stat.size, 'Accept-Ranges': 'bytes' });
-      return fs.createReadStream(full).pipe(res);
+      const stream = fs.createReadStream(full);
+      stream.on('error', () => res.destroy());
+      return stream.pipe(res);
     }
 
     // ---- static ----
@@ -811,6 +834,7 @@ module.exports = {
   validateString,
   validatePackType,
   validateBundleId,
+  parseByteRange,
   resolveChild,
   findBundle,
   captureSource,

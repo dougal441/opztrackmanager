@@ -63,6 +63,7 @@ function request(server, pathname, options = {}) {
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
+        if (options.raw) return resolve({ status: res.statusCode, headers: res.headers, body });
         try { resolve({ status: res.statusCode, body: JSON.parse(body) }); }
         catch (error) { reject(error); }
       });
@@ -244,6 +245,20 @@ test('input validation rejects invalid types before filesystem access', () => {
   assert.equal(subject.validatePackType('1-kick'), '1-kick');
   assert.throws(() => subject.validatePackType('9-path'), error => error.code === 'INVALID_PACK_TYPE');
   assert.throws(() => subject.validateString('x'.repeat(121), 'name', 120), error => error.code === 'INVALID_STRING');
+});
+
+test('audio rejects invalid ranges without crashing the server', async t => {
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  t.after(() => { if (subject.server.listening) subject.server.close(); });
+  const audioPath = '/audio?path=' + encodeURIComponent('opzgui/opzdisk/projects/project01.opz');
+  const invalid = await request(subject.server, audioPath, { raw: true, headers: { Range: 'bytes=999999999999-' } });
+  assert.equal(invalid.status, 416);
+  assert.match(invalid.headers['content-range'], /^bytes \*\/\d+$/);
+  assert.deepEqual(subject.parseByteRange('bytes=-10', 100), { start: 90, end: 99 });
+  assert.equal(subject.parseByteRange('bytes=20-10', 100), null);
+
+  const state = await requestJson(subject.server, '/api/state');
+  assert.equal(state.status, 200);
 });
 
 test('bundle containment rejects path escapes and unverified items', t => {
