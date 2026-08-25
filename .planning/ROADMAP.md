@@ -13,7 +13,7 @@ This milestone turns the existing backup features into a safety-first archive-an
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Verified Transaction Foundation** - Make every destructive workflow source-pinned, validated, serialized, and evidence-backed.
+- [x] **Phase 1: Verified Transaction Foundation** - Make every destructive workflow source-pinned, validated, serialized, and evidence-backed. (completed 2026-08-26)
 - [ ] **Phase 2: Verified Archive Shelf & Manual Freeing** - Create complete archive records users can browse before following the safe manual clear fallback.
 - [ ] **Phase 3: Guarded Restore & Instrument Recovery** - Restore into an explicitly chosen slot without unprotected overwrites.
 - [ ] **Phase 4: Split Review & Confirmed Intent** - Surface suspected two-song projects for user-controlled review without changing originals.
@@ -132,7 +132,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Verified Transaction Foundation | 3/3 | In Progress|  |
+| 1. Verified Transaction Foundation | 3/3 | Complete    | 2026-08-26 |
 | 2. Verified Archive Shelf & Manual Freeing | 0/TBD | Not started | - |
 | 3. Guarded Restore & Instrument Recovery | 0/TBD | Not started | - |
 | 4. Split Review & Confirmed Intent | 0/TBD | Not started | - |
