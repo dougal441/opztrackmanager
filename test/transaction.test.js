@@ -190,7 +190,7 @@ test('bundle containment rejects path escapes and unverified items', t => {
   fs.writeFileSync(path.join(outside, 'song.opz'), fixture);
   fs.symlinkSync(outside, path.join(libraryRoot, 'escaped'));
 
-  assert.equal(subject.findBundle('verified', false, libraryRoot, null).dir, path.join(libraryRoot, 'verified'));
+  assert.equal(subject.findBundle('verified', false, libraryRoot, null).dir, fs.realpathSync(path.join(libraryRoot, 'verified')));
   for (const id of ['', '.', '..', '/tmp/x', '../x', 'x/y', 'x\\y']) {
     assert.throws(() => subject.validateBundleId(id), error => error.code === 'INVALID_BUNDLE_ID');
   }

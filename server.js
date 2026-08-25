@@ -268,20 +268,33 @@ function scanRecordings() {
 function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); }
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let b = '';
-    req.on('data', c => { b += c; if (b.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch (e) { reject(e); } });
+    const chunks = [];
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > 1e6) return reject(requestError(413, 'BODY_TOO_LARGE', 'Request body is too large.'));
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        const body = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+        resolve(body ? JSON.parse(body) : {});
+      } catch { reject(requestError(400, 'INVALID_JSON', 'Request body must be valid UTF-8 JSON.')); }
+    });
   });
 }
 function safeName(s) { return (s || 'untitled').replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 60) || 'untitled'; }
 function stamp() { return new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19); }
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
-function transactionError(code, message, guidance, status) {
-  const error = new Error(message);
+function requestError(status, code, publicMessage, guidance = 'Correct the request and retry.') {
+  const error = new Error(publicMessage);
+  error.status = status;
   error.code = code;
   error.guidance = guidance;
-  if (status) error.status = status;
   return error;
+}
+function transactionError(code, message, guidance, status) {
+  return requestError(status || 500, code, message, guidance);
 }
 function sourceError(code, message) {
   return transactionError(code, message,
@@ -291,15 +304,62 @@ function archiveError(code, message) {
   return transactionError(code, message,
     'Archive verification failed. The source was not changed. Review the retained failed draft, then refresh and retry.');
 }
-function validSlot(slot) {
-  if (!Number.isInteger(slot) || slot < 1 || slot > 10) throw new Error('slot must be an integer from 1 to 10');
+function requireMutationRequest(req) {
+  const contentType = String(req.headers['content-type'] || '');
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    throw requestError(415, 'JSON_REQUIRED', 'Mutation requests require application/json.');
+  }
+  const charset = /;\s*charset\s*=\s*"?([^;"\s]+)/i.exec(contentType);
+  if (charset && !/^utf-?8$/i.test(charset[1])) {
+    throw requestError(415, 'UNSUPPORTED_ENCODING', 'Mutation request JSON must use UTF-8.');
+  }
+  if (req.headers['x-opz-mutation'] !== '1') {
+    throw requestError(403, 'MUTATION_HEADER_REQUIRED', 'Mutation request header is missing.');
+  }
+  if (req.headers['sec-fetch-site'] === 'cross-site') {
+    throw requestError(403, 'CROSS_SITE_REQUEST', 'Cross-site mutation requests are not allowed.');
+  }
+  if (req.headers.origin) {
+    let origin;
+    try { origin = new URL(req.headers.origin); }
+    catch { throw requestError(403, 'ORIGIN_MISMATCH', 'Mutation request origin does not match this server.'); }
+    if (!/^https?:$/.test(origin.protocol) || origin.host !== req.headers.host) {
+      throw requestError(403, 'ORIGIN_MISMATCH', 'Mutation request origin does not match this server.');
+    }
+  }
+}
+function validateSlot(slot) {
+  if (!Number.isInteger(slot) || slot < 1 || slot > 10) {
+    throw requestError(400, 'INVALID_SLOT', 'Slot must be an integer from 1 to 10.');
+  }
   return slot;
 }
+function validateBoolean(value, name) {
+  if (typeof value !== 'boolean') throw requestError(400, 'INVALID_BOOLEAN', `${name} must be a boolean.`);
+  return value;
+}
+function validateString(value, name, max, allowEmpty = true) {
+  if (typeof value !== 'string' || value.length > max || (!allowEmpty && !value.length) || value.includes('\0')) {
+    throw requestError(400, 'INVALID_STRING', `${name} must be a valid string of at most ${max} characters.`);
+  }
+  return value;
+}
+function validatePackType(type) {
+  if (!PACK_TYPES.includes(type)) throw requestError(400, 'INVALID_PACK_TYPE', 'Unknown sample-pack type.');
+  return type;
+}
+function validateBundleId(id) {
+  if (typeof id !== 'string' || !id || id.length > 120 || id === '.' || id === '..'
+      || id.startsWith('.') || /[\\/\0]/.test(id) || path.isAbsolute(id) || path.basename(id) !== id) {
+    throw requestError(400, 'INVALID_BUNDLE_ID', 'Invalid library bundle identifier.');
+  }
+  return id;
+}
 function validateBackup(body) {
-  if (!body || typeof body !== 'object') throw new Error('invalid archive request');
-  validSlot(body.slot);
-  if (typeof body.deep !== 'boolean') throw new Error('deep must be a boolean');
-  if (typeof body.name !== 'string' || body.name.length > 120) throw new Error('name must be a string of at most 120 characters');
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw requestError(400, 'INVALID_REQUEST', 'Invalid archive request.');
+  validateSlot(body.slot);
+  validateBoolean(body.deep, 'deep');
+  validateString(body.name, 'name', 120);
   return body;
 }
 function publicSource(source) {
@@ -311,7 +371,7 @@ function sourceGuidance(source) {
     : 'Verified archive saved. No OP-Z data changed. Refresh after connecting the OP-Z.';
 }
 function captureSource(slot, source) {
-  validSlot(slot);
+  validateSlot(slot);
   if (!source || typeof source.root !== 'string') throw new Error('no source');
   const root = fs.realpathSync(source.root);
   const rootStat = fs.statSync(root, { bigint: true });
@@ -438,13 +498,41 @@ function autoBackupSlot(slot, meta) {
   fs.writeFileSync(path.join(dir, 'info.json'), JSON.stringify({ name, fromSlot: slot, auto: true, instruments: instrumentsSummary() }, null, 2));
   return path.basename(dir);
 }
-function findBundle(file, auto) {
-  const id = path.basename(file);
-  if (id.startsWith('.')) throw new Error('library item not found');
-  const dir = path.join(auto ? AUTO_DIR : LIB_DIR, id);
-  if (fs.existsSync(path.join(dir, 'song.opz'))) return { dir, opz: path.join(dir, 'song.opz'), bundle: true };
-  if (fs.existsSync(dir) && dir.endsWith('.opz')) return { dir: null, opz: dir, bundle: false };
-  throw new Error('library item not found');
+function resolveChild(root, id) {
+  validateBundleId(id);
+  let base;
+  let child;
+  try {
+    base = fs.realpathSync(root);
+    child = fs.realpathSync(path.resolve(base, id));
+  } catch { throw requestError(404, 'PATH_NOT_FOUND', 'Library item was not found.'); }
+  const relative = path.relative(base, child);
+  if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+    throw requestError(400, 'PATH_OUTSIDE_ROOT', 'Library item is outside the library.');
+  }
+  return child;
+}
+function findBundle(file, auto, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
+  validateBoolean(auto, 'auto');
+  const id = validateBundleId(file);
+  const dir = resolveChild(auto ? autoRoot : libraryRoot, id);
+  let stored;
+  let info;
+  try {
+    if (!fs.statSync(dir).isDirectory()) throw new Error('not a bundle');
+    const opz = resolveChild(dir, 'song.opz');
+    stored = fs.readFileSync(opz);
+    parseProject(stored);
+    info = JSON.parse(fs.readFileSync(resolveChild(dir, 'info.json'), 'utf8'));
+    const evidence = info.verification || {};
+    if (evidence.verified !== true || evidence.bytes !== stored.length || evidence.sha256 !== sha256(stored)) {
+      throw new Error('verification mismatch');
+    }
+    return { dir, opz, bundle: true, buffer: stored };
+  } catch (error) {
+    if (/^INVALID_/.test(error.code || '') || error.code === 'PATH_OUTSIDE_ROOT') throw error;
+    throw requestError(409, 'BUNDLE_UNVERIFIED', 'Library bundle is not verified and cannot be restored.');
+  }
 }
 
 // ---------- op1.fun helpers ----------
@@ -506,6 +594,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   try {
+    if (req.method === 'POST') requireMutationRequest(req);
     if (p === '/api/state') {
       const meta = loadMeta();
       return json(res, 200, {
@@ -525,8 +614,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/meta' && req.method === 'POST') {
       const body = await readBody(req);
+      validateString(body.hash, 'hash', 64, false);
+      if (!/^[a-f0-9]{16,64}$/i.test(body.hash) || !body.fields || typeof body.fields !== 'object' || Array.isArray(body.fields)
+          || JSON.stringify(body.fields).length > 20000) {
+        throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
+      }
+      for (const [name, value] of Object.entries(body.fields)) {
+        if (typeof value === 'string') validateString(value, name, 10000);
+      }
       const meta = loadMeta();
-      if (!body.hash) return json(res, 400, { error: 'hash required' });
       meta.songs[body.hash] = { ...(meta.songs[body.hash] || {}), ...body.fields, updated: new Date().toISOString() };
       saveMeta(meta);
       return json(res, 200, { ok: true });
@@ -534,9 +630,6 @@ const server = http.createServer(async (req, res) => {
 
     // ---- song library ----
     if (p === '/api/backup' && req.method === 'POST') {
-      if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '') || req.headers['x-opz-mutation'] !== '1') {
-        return json(res, 403, { error: 'archive request requires JSON and X-OPZ-Mutation' });
-      }
       const body = validateBackup(await readBody(req));
       return await withMutation(`archive slot ${body.slot}`, async mutation => {
         const meta = loadMeta();
@@ -558,6 +651,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/restore' && req.method === 'POST') {
       const body = await readBody(req); // {file, auto, slot, restoreInstruments}
+      validateBundleId(body.file);
+      validateBoolean(body.auto, 'auto');
+      validateSlot(body.slot);
+      validateBoolean(body.restoreInstruments, 'restoreInstruments');
       const meta = loadMeta();
       const b = findBundle(body.file, body.auto);
       const backedUp = autoBackupSlot(body.slot, meta);
@@ -572,6 +669,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/swap' && req.method === 'POST') {
       const body = await readBody(req);
+      validateSlot(body.a); validateSlot(body.b);
+      if (body.a === body.b) throw requestError(400, 'INVALID_SWAP', 'Swap requires two different slots.');
       const fa = projFile(body.a), fb = projFile(body.b);
       const ba = fs.readFileSync(fa), bb = fs.readFileSync(fb);
       fs.writeFileSync(fa, bb); fs.writeFileSync(fb, ba);
@@ -581,6 +680,7 @@ const server = http.createServer(async (req, res) => {
       // backup then overwrite with an empty-ish project? OP-Z has no "empty" file concept in disk mode;
       // safest is: backup to library, leave file. We just do the backup and tell the user to clear on device.
       const body = await readBody(req);
+      validateSlot(body.slot);
       const meta = loadMeta();
       const backedUp = autoBackupSlot(body.slot, meta);
       return json(res, 200, { ok: true, backedUp, note: 'Slot backed up. Clear the project on the device itself (project + erase) — the OP-Z rebuilds the file.' });
@@ -589,6 +689,8 @@ const server = http.createServer(async (req, res) => {
     // ---- instruments ----
     if (p === '/api/instruments/move' && req.method === 'POST') {
       const body = await readBody(req); // {type, from, to}
+      validatePackType(body.type); validateSlot(body.from); validateSlot(body.to);
+      if (body.from === body.to) throw requestError(400, 'INVALID_MOVE', 'Move requires two different slots.');
       const a = packSlotDir(body.type, body.from), bdir = packSlotDir(body.type, body.to);
       const tmp = bdir + '.tmp-swap';
       if (slotFiles(bdir).length) { // swap
@@ -603,6 +705,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/instruments/remove' && req.method === 'POST') {
       const body = await readBody(req); // {type, slot}
+      validatePackType(body.type); validateSlot(body.slot);
       const dir = packSlotDir(body.type, body.slot);
       const dest = path.join(TRASH_DIR, `${stamp()}_${body.type}-${body.slot}`);
       moveSlotContents(dir, dest);
@@ -610,6 +713,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/instruments/import' && req.method === 'POST') {
       const body = await readBody(req); // {type, slot, source: relative-to-Music path of .aif}
+      validatePackType(body.type); validateSlot(body.slot); validateString(body.source, 'source', 1024, false);
       const srcFile = path.join(MUSIC_DIR, body.source || '');
       if (!srcFile.startsWith(MUSIC_DIR) || (body.source || '').includes('..')) return json(res, 403, { error: 'bad path' });
       if (!/\.(aif|aiff)$/i.test(srcFile)) return json(res, 400, { error: 'OP-Z accepts .aif sample packs only' });
@@ -671,6 +775,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => !['op1funEmail', 'op1funToken'].includes(key))) {
+        throw requestError(400, 'INVALID_SETTINGS', 'Invalid settings.');
+      }
+      if ('op1funEmail' in body) validateString(body.op1funEmail, 'op1funEmail', 320);
+      if ('op1funToken' in body) validateString(body.op1funToken, 'op1funToken', 1000);
       let cur = {}; try { cur = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
       fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...cur, ...body }, null, 2));
       return json(res, 200, { ok: true });
@@ -689,6 +799,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/op1fun/download' && req.method === 'POST') {
       const body = await readBody(req); // { patchPath: "/users/x/patches/y", type, slot }
+      validateString(body.patchPath, 'patchPath', 500, false);
+      validatePackType(body.type); validateSlot(body.slot);
       let settings = {}; try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch {}
       if (!settings.op1funEmail || !settings.op1funToken) {
         return json(res, 400, { error: 'op1.fun account needed: add email + API token in settings (op1.fun → account settings)' });
@@ -742,10 +854,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'text/plain' });
     return fs.createReadStream(full).pipe(res);
   } catch (e) {
-    const safe = /^(SOURCE_|ARCHIVE_|MUTATION_)/.test(e.code || '')
+    const safe = Number.isInteger(e.status) && /^[A-Z][A-Z0-9_]+$/.test(e.code || '')
       ? { error: e.message, code: e.code, guidance: e.guidance }
       : { error: 'Operation failed safely.', code: 'OPERATION_FAILED', guidance: 'Refresh and retry. If the source disconnected, reconnect it first.' };
-    return json(res, e.status || 500, safe);
+    return json(res, Number.isInteger(e.status) ? e.status : 500, safe);
   }
 });
 
@@ -762,6 +874,15 @@ if (require.main === module) {
 }
 
 module.exports = {
+  requireMutationRequest,
+  requestError,
+  validateSlot,
+  validateBoolean,
+  validateString,
+  validatePackType,
+  validateBundleId,
+  resolveChild,
+  findBundle,
   captureSource,
   assertCapturedSource,
   withMutation,
