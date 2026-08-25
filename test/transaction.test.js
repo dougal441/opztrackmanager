@@ -133,12 +133,12 @@ test('verified archive tracer publishes reread, parsed bytes with evidence', t =
   const stored = fs.readFileSync(path.join(bundle, 'song.opz'));
   const info = JSON.parse(fs.readFileSync(path.join(bundle, 'info.json'), 'utf8'));
   assert.ok(stored.equals(fixture));
-  assert.equal(info.verification.sha256, crypto.createHash('sha256').update(stored).digest('hex'));
-  assert.equal(info.verification.bytes, stored.length);
-  assert.equal(info.verification.verified, true);
+  assert.equal(info.project.sha256, crypto.createHash('sha256').update(stored).digest('hex'));
+  assert.equal(info.project.bytes, stored.length);
+  assert.equal(info.schemaVersion, 1);
   assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, true);
 
-  info.verification.sha256 = '0'.repeat(64);
+  info.project.sha256 = '0'.repeat(64);
   fs.writeFileSync(path.join(bundle, 'info.json'), JSON.stringify(info));
   assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, false);
 });
@@ -315,17 +315,25 @@ test('whole-grid stored evidence and manifest publication preserve the source on
   assert.ok(!JSON.stringify(info).includes('rootInode'));
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(success.sourceRoot, 'projects', 'project01.opz'))).digest('hex'), sourceHash);
 
-  for (const target of ['manifest', 'pack']) {
+  for (const target of ['manifest', 'pack', 'snippet', 'source-pack']) {
     const roots = create();
-    assert.throws(() => subject.archiveCapturedProject(subject.captureSource(1, roots.source), {
+    const recording = target === 'snippet' ? { root: 'device', path: 'bounces/tamper.wav' } : null;
+    if (recording) {
+      fs.mkdirSync(path.join(roots.sourceRoot, 'bounces'));
+      fs.writeFileSync(path.join(roots.sourceRoot, recording.path), 'snippet bytes');
+    }
+    const source = recording ? { ...roots.source, device: true, label: 'fixture OP-Z' } : roots.source;
+    assert.throws(() => subject.archiveCapturedProject(subject.captureSource(1, source), {
       libraryRoot: roots.libraryRoot,
       name: `Tampered ${target}`,
       deep: true,
       metadata: { name: target, tags: '', notes: '', kit: {} },
-      recording: null,
+      recording,
       beforePublish(_storedPath, draft) {
         if (target === 'manifest') fs.writeFileSync(path.join(draft, 'info.json'), '{');
-        else fs.writeFileSync(path.join(draft, 'samplepacks', '1-kick', '01', 'kick.aif'), 'tampered');
+        else if (target === 'pack') fs.writeFileSync(path.join(draft, 'samplepacks', '1-kick', '01', 'kick.aif'), 'tampered');
+        else if (target === 'snippet') fs.writeFileSync(path.join(draft, 'snippet', 'recording.wav'), 'tampered');
+        else fs.writeFileSync(path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01', 'kick.aif'), 'tampered');
       },
     }), error => error.code === 'ARCHIVE_MANIFEST_MISMATCH');
     assert.deepEqual(visibleBundles(roots.libraryRoot), []);
@@ -376,7 +384,7 @@ test('deep archive verifies every stored sample-pack byte', t => {
   });
   const bundle = path.join(roots.libraryRoot, result.file);
   const info = JSON.parse(fs.readFileSync(path.join(bundle, 'info.json'), 'utf8'));
-  assert.deepEqual(info.manifest.map(item => item.path), ['1-kick/01/kick.aif']);
+  assert.deepEqual(info.samplepacks.files.map(item => item.path), ['1-kick/01/kick.aif']);
   assert.equal(subject.scanLibrary({ songs: {} }, roots.libraryRoot, null)[0].verified, true);
 
   fs.writeFileSync(path.join(bundle, 'samplepacks', '1-kick', '01', 'kick.aif'), Buffer.from('corrupt'));
@@ -742,18 +750,14 @@ test('bundle containment rejects path escapes and unverified items', t => {
     const dir = path.join(libraryRoot, name);
     fs.mkdirSync(dir);
     fs.writeFileSync(path.join(dir, 'song.opz'), fixture);
-    if (evidence) fs.writeFileSync(path.join(dir, 'info.json'), JSON.stringify({ verification: {
-      verified: true,
-      sha256: crypto.createHash('sha256').update(fixture).digest('hex'),
-      bytes: fixture.length,
-    } }));
+    if (evidence) fs.writeFileSync(path.join(dir, 'info.json'), JSON.stringify(schemaInfo(fixture)));
     return dir;
   };
   writeBundle('verified');
   writeBundle('legacy', false);
   writeBundle('mismatch');
   const mismatch = JSON.parse(fs.readFileSync(path.join(libraryRoot, 'mismatch', 'info.json')));
-  mismatch.verification.sha256 = '0'.repeat(64);
+  mismatch.project.sha256 = '0'.repeat(64);
   fs.writeFileSync(path.join(libraryRoot, 'mismatch', 'info.json'), JSON.stringify(mismatch));
   fs.writeFileSync(path.join(outside, 'song.opz'), fixture);
   fs.symlinkSync(outside, path.join(libraryRoot, 'escaped'));
@@ -826,21 +830,19 @@ test('failed draft retains sanitized evidence and never becomes verified', t => 
   assert.deepEqual(visibleBundles(invalid.libraryRoot), []);
 });
 
-test('corrupt published bundle remains visible as an unverified diagnostic', t => {
+test('incomplete published bundle remains visible as an unverified diagnostic', t => {
   const { libraryRoot } = tempRoots(t);
   const bundle = path.join(libraryRoot, 'corrupt-published');
   fs.mkdirSync(bundle);
   fs.writeFileSync(path.join(bundle, 'song.opz'), Buffer.from('not a project'));
 
   const items = subject.scanLibrary({ songs: {} }, libraryRoot, null);
-  assert.deepEqual(items, [{
-    file: 'corrupt-published',
-    bundle: true,
-    auto: false,
-    modified: fs.statSync(bundle).mtime,
-    verified: false,
-    errorCode: 'ARCHIVE_PARSE_FAILED',
-  }]);
+  assert.equal(items.length, 1);
+  assert.deepEqual(items[0], {
+    file: 'corrupt-published', bundle: true, auto: false, modified: fs.statSync(bundle).mtime,
+    verified: false, complete: false, restoreEligible: false, manualFreeEligible: false,
+    diagnostic: 'partial', errorCode: 'ARCHIVE_PARTIAL', meta: null,
+  });
   assert.ok(!JSON.stringify(items).includes(libraryRoot));
 });
 
@@ -850,12 +852,9 @@ test('corrupt legacy archive remains visible as an unverified diagnostic', t => 
   fs.writeFileSync(legacy, Buffer.from('not a project'));
 
   assert.deepEqual(subject.scanLibrary({ songs: {} }, libraryRoot, null), [{
-    file: 'broken.opz',
-    bundle: false,
-    auto: false,
-    modified: fs.statSync(legacy).mtime,
-    verified: false,
-    errorCode: 'ARCHIVE_PARSE_FAILED',
+    file: 'broken.opz', bundle: false, auto: false, modified: fs.statSync(legacy).mtime,
+    verified: false, complete: false, restoreEligible: false, manualFreeEligible: false,
+    diagnostic: 'corrupt', errorCode: 'ARCHIVE_PARSE_FAILED',
   }]);
 });
 
@@ -877,7 +876,9 @@ test('attribute values and archive slots reject stored markup injection', t => {
   fs.mkdirSync(bundle);
   fs.writeFileSync(path.join(bundle, 'song.opz'), fixture);
   fs.writeFileSync(path.join(bundle, 'info.json'), JSON.stringify({ fromSlot: hostile }));
-  assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].fromSlot, null);
+  const diagnostic = subject.scanLibrary({ songs: {} }, libraryRoot, null)[0];
+  assert.equal(diagnostic.fromSlot, undefined);
+  assert.equal(diagnostic.errorCode, 'ARCHIVE_LEGACY');
 });
 
 test('mutation conflict rejects before resolver work and releases after success or failure', async () => {
@@ -1080,9 +1081,9 @@ test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, 
   const info = JSON.parse(fs.readFileSync(path.join(bundle, 'info.json'), 'utf8'));
   parseProject(stored);
   assert.ok(stored.equals(before));
-  assert.equal(info.verification.verified, true);
-  assert.equal(info.verification.sha256, beforeSha256);
-  assert.equal(info.verification.bytes, before.length);
+  assert.equal(info.schemaVersion, 1);
+  assert.equal(info.project.sha256, beforeSha256);
+  assert.equal(info.project.bytes, before.length);
   assert.equal(archived.body.evidence.sha256, beforeSha256);
   assert.equal(archived.body.evidence.bytes, before.length);
 

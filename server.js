@@ -196,12 +196,13 @@ function copyDir(from, to, manifest = [], relative = '') {
     if (f.startsWith('.')) continue;
     const a = path.join(from, f), b = path.join(to, f);
     const rel = path.join(relative, f);
-    if (fs.statSync(a).isDirectory()) copyDir(a, b, manifest, rel);
-    else {
+    const stat = fs.lstatSync(a);
+    if (stat.isDirectory()) copyDir(a, b, manifest, rel);
+    else if (stat.isFile()) {
       const buf = fs.readFileSync(a);
       fs.writeFileSync(b, buf, { flush: true });
       manifest.push({ path: rel.split(path.sep).join('/'), bytes: buf.length, sha256: sha256(buf) });
-    }
+    } else throw new Error('unsupported sample-pack entry');
   }
   return manifest;
 }
@@ -463,29 +464,31 @@ function instrumentsSummary(source) {
 }
 
 // ---------- recordings ----------
+function recordingRoots(source) {
+  const roots = [
+    { kind: 'music', base: MUSIC_DIR, dir: path.join(MUSIC_DIR, 'OP-Z songs') },
+    { kind: 'music', base: MUSIC_DIR, dir: path.join(ROOT, 'bounces') },
+    { kind: 'music', base: MUSIC_DIR, dir: path.join(MUSIC_DIR, 'FlowStudio', 'Recordings') },
+  ];
+  if (source && source.device) roots.push({ kind: 'device', base: source.root, dir: path.join(source.root, 'bounces') });
+  return roots;
+}
 function scanRecordings() {
   const src = getSource();
-  const roots = [
-    path.join(MUSIC_DIR, 'OP-Z songs'),
-    path.join(ROOT, 'bounces'),
-    path.join(MUSIC_DIR, 'FlowStudio', 'Recordings'),
-  ];
-  if (src && src.device) roots.push(path.join(src.root, 'bounces'));
   const out = [];
-  const walk = (dir, depth, base) => {
+  const walk = (dir, depth, base, kind) => {
     if (depth > 3 || !fs.existsSync(dir)) return;
     for (const f of fs.readdirSync(dir)) {
       if (f.startsWith('.')) continue;
       const full = path.join(dir, f);
       const st = fs.statSync(full);
-      if (st.isDirectory()) walk(full, depth + 1, base);
+      if (st.isDirectory()) walk(full, depth + 1, base, kind);
       else if (/\.(wav|aiff?|mp3|m4a)$/i.test(f)) {
-        out.push({ path: path.relative(base, full), root: base === MUSIC_DIR ? 'music' : 'device', name: f, size: st.size, modified: st.mtime });
+        out.push({ path: path.relative(base, full), root: kind, name: f, size: st.size, modified: st.mtime });
       }
     }
   };
-  roots.slice(0, 3).forEach(r => walk(r, 0, MUSIC_DIR));
-  if (src && src.device) walk(path.join(src.root, 'bounces'), 0, src.root);
+  for (const root of recordingRoots(src)) walk(root.dir, 0, root.base, root.kind);
   out.sort((a, b) => new Date(b.modified) - new Date(a.modified));
   return out;
 }
@@ -636,7 +639,8 @@ function validateBackup(body) {
   return body;
 }
 function publicSource(source) {
-  return { device: source.device, label: source.label, slot: source.slot };
+  const label = String(source.label || 'unknown source').replace(/\0/g, '').slice(0, 80) || 'unknown source';
+  return { device: source.device === true, label, slot: source.slot };
 }
 function sourceGuidance(source) {
   return source.device
@@ -711,6 +715,46 @@ function retainFailedDraft(draft, libraryRoot, captured, operation, error) {
     fs.renameSync(draft, path.join(failedRoot, path.basename(draft)));
   } catch {}
 }
+function archiveMetadata(value, fallbackName) {
+  const source = isPlainObject(value) ? value : {};
+  const fallback = typeof fallbackName === 'string' ? fallbackName.replace(/\0/g, '').slice(0, 120) : '';
+  const text = (key, limit, fallback = '') => typeof source[key] === 'string'
+    && source[key].length <= limit && !source[key].includes('\0') ? source[key] : fallback;
+  const kit = isPlainObject(source.kit)
+    && Object.keys(source.kit).every(track => META_TRACKS.includes(track))
+    && Object.values(source.kit).every(slot => Number.isInteger(slot) && slot >= 1 && slot <= 10)
+    ? { ...source.kit } : {};
+  return { name: text('name', 120, fallback), tags: text('tags', 1000), notes: text('notes', 10000), kit };
+}
+function captureRecording(selection, captured) {
+  if (!selection) return { status: 'unlinked' };
+  if (!isPlainObject(selection) || !['music', 'device'].includes(selection.root)
+      || typeof selection.path !== 'string' || !selection.path || selection.path.length > 2000
+      || selection.path.includes('\0') || path.isAbsolute(selection.path)) return { status: 'unavailable' };
+  const roots = recordingRoots(captured).filter(root => root.kind === selection.root);
+  if (!roots.length) return { status: 'unavailable' };
+  const candidate = path.resolve(roots[0].base, selection.path);
+  const lexicallyAllowed = roots.some(root => {
+    const relative = path.relative(root.dir, candidate);
+    return relative && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+  });
+  if (!lexicallyAllowed) return { status: 'unavailable' };
+  if (!fs.existsSync(candidate)) return { status: 'missing' };
+  try {
+    if (fs.lstatSync(candidate).isSymbolicLink()) return { status: 'unavailable' };
+    const full = fs.realpathSync(candidate);
+    const contained = roots.some(root => {
+      let canonical;
+      try { canonical = fs.realpathSync(root.dir); } catch { return false; }
+      const relative = path.relative(canonical, full);
+      return relative && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+    });
+    const ext = path.extname(full).toLowerCase();
+    if (!contained || !new Set(['.wav', '.aif', '.aiff', '.mp3', '.m4a']).has(ext)
+        || !fs.statSync(full).isFile()) return { status: 'unavailable' };
+    return { status: 'included', bytes: fs.readFileSync(full), ext };
+  } catch { return { status: 'unavailable' }; }
+}
 function archiveCapturedProject(captured, options) {
   const libraryRoot = fs.realpathSync(options.libraryRoot);
   const name = safeName(options.name);
@@ -729,6 +773,19 @@ function archiveCapturedProject(captured, options) {
       manifest = copyDir(samplepacks, path.join(draft, 'samplepacks'));
       assertCapturedSource(captured);
     }
+    assertCapturedSource(captured);
+    const snippetSource = captureRecording(options.recording, captured);
+    let snippet = { status: snippetSource.status };
+    if (snippetSource.status === 'included') {
+      const snippetDir = path.join(draft, 'snippet');
+      const snippetPath = `snippet/recording${snippetSource.ext}`;
+      fs.mkdirSync(snippetDir);
+      const output = path.join(draft, snippetPath);
+      fs.writeFileSync(output, snippetSource.bytes, { flush: true });
+      const storedSnippet = fs.readFileSync(output);
+      if (!storedSnippet.equals(snippetSource.bytes)) throw archiveError('ARCHIVE_BYTES_MISMATCH', 'Stored snippet does not match the captured recording.');
+      snippet = { status: 'included', path: snippetPath, bytes: storedSnippet.length, sha256: sha256(storedSnippet) };
+    }
     if (typeof options.beforeVerify === 'function') options.beforeVerify(storedPath, draft);
     const stored = fs.readFileSync(storedPath);
     if (stored.length !== captured.bytes || !stored.equals(captured.buffer)) {
@@ -742,22 +799,31 @@ function archiveCapturedProject(captured, options) {
         || !manifestMatches(samplepacks, manifest))) {
       throw archiveError('ARCHIVE_MANIFEST_MISMATCH', 'Stored sample packs do not match the captured source.');
     }
-    const instruments = options.deep ? instrumentsSummary({ root: draft }) : null;
-    const verification = { verified: true, sha256: sha256(stored), bytes: stored.length, checked: new Date().toISOString() };
+    const checked = new Date().toISOString();
+    const project = { path: 'song.opz', sha256: sha256(stored), bytes: stored.length, checked };
     const info = {
-      name,
-      fromSlot: captured.slot,
-      created: new Date().toISOString(),
-      instruments,
-      deep: options.deep,
-      manifest,
-      verification,
+      schemaVersion: 1,
+      created: checked,
+      source: publicSource(captured),
+      project,
+      metadata: archiveMetadata(options.metadata, options.name || `slot${captured.slot}`),
+      snippet,
+      samplepacks: { captured: options.deep, files: manifest || [] },
     };
     fs.writeFileSync(path.join(draft, 'info.json'), JSON.stringify(info, null, 2), { flush: true });
+    if (typeof options.beforePublish === 'function') options.beforePublish(storedPath, draft);
+    const classification = classifyArchive(draft);
+    if (!classification.verified || classification.complete !== (options.deep && ['included', 'unlinked'].includes(snippet.status))) {
+      throw archiveError('ARCHIVE_MANIFEST_MISMATCH', 'Stored archive evidence does not match its manifest.');
+    }
+    if (options.deep && !manifestMatches(samplepacks, manifest)) {
+      throw archiveError('ARCHIVE_MANIFEST_MISMATCH', 'Captured sample packs changed before publication.');
+    }
     assertCapturedSource(captured);
     const finalName = `${stamp()}_${name}_${path.basename(draft).slice(-6)}`;
     fs.renameSync(draft, path.join(libraryRoot, finalName));
-    return { ok: true, verified: true, file: finalName, source: publicSource(captured), evidence: verification, guidance: sourceGuidance(captured) };
+    return { ok: true, verified: true, complete: classification.complete, file: finalName,
+      source: publicSource(captured), evidence: project, guidance: sourceGuidance(captured) };
   } catch (error) {
     const failure = /^(SOURCE_|ARCHIVE_)/.test(error.code || '')
       ? error
@@ -778,8 +844,13 @@ function resolveChild(root, id) {
   let child;
   try {
     base = fs.realpathSync(root);
-    child = fs.realpathSync(path.resolve(base, id));
-  } catch { throw requestError(404, 'PATH_NOT_FOUND', 'Library item was not found.'); }
+    const candidate = path.resolve(base, id);
+    if (fs.lstatSync(candidate).isSymbolicLink()) throw requestError(400, 'PATH_OUTSIDE_ROOT', 'Library item is outside the library.');
+    child = fs.realpathSync(candidate);
+  } catch (error) {
+    if (error.code === 'PATH_OUTSIDE_ROOT') throw error;
+    throw requestError(404, 'PATH_NOT_FOUND', 'Library item was not found.');
+  }
   const relative = path.relative(base, child);
   if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
     throw requestError(400, 'PATH_OUTSIDE_ROOT', 'Library item is outside the library.');
@@ -895,17 +966,20 @@ const server = http.createServer(async (req, res) => {
       return await withMutation(`archive slot ${body.slot}`, async mutation => {
         if (testHooks.beforeBackupCapture) await testHooks.beforeBackupCapture();
         const metaFile = testHooks.metaFile || META_FILE;
-        const meta = loadMeta(metaFile);
         const source = (testHooks.sourceResolver || getSource)();
         if (!source) throw new Error('no source');
         const captured = (testHooks.captureSource || captureSource)(body.slot, source);
         mutation.source = publicSource(captured);
+        const meta = loadMeta(metaFile);
         const hash = hashFile(captured.buffer);
-        const name = body.name || (meta.songs[hash] && meta.songs[hash].name) || `slot${body.slot}`;
+        const annotation = isPlainObject(meta.songs[hash]) ? meta.songs[hash] : {};
+        const name = body.name || (typeof annotation.name === 'string' && annotation.name.length <= 120 ? annotation.name : '') || `slot${body.slot}`;
         const result = archiveCapturedProject(captured, {
           libraryRoot: testHooks.libraryRoot || LIB_DIR,
           name,
           deep: body.deep,
+          metadata: { ...annotation, name },
+          recording: annotation.wav ? { root: annotation.wavRoot, path: annotation.wav } : null,
           operation: mutation.operation,
         });
         let metadataSaved = true;
@@ -999,14 +1073,15 @@ const server = http.createServer(async (req, res) => {
     if (p === '/audio') {
       const rel = url.searchParams.get('path') || '';
       const rootParam = url.searchParams.get('root');
-      let base = MUSIC_DIR;
-      let roots = [path.join(MUSIC_DIR, 'OP-Z songs'), path.join(ROOT, 'bounces'), path.join(MUSIC_DIR, 'FlowStudio', 'Recordings')];
+      let src = null;
       if (rootParam === 'device') {
-        const src = (testHooks.sourceResolver || getSource)();
+        src = (testHooks.sourceResolver || getSource)();
         if (!src || !src.device) { res.writeHead(404); return res.end(); }
-        base = src.root;
-        roots = [path.join(src.root, 'bounces')];
       } else if (rootParam && rootParam !== 'music') { res.writeHead(403); return res.end(); }
+      const rootKind = rootParam === 'device' ? 'device' : 'music';
+      const entries = recordingRoots(src).filter(root => root.kind === rootKind);
+      const base = entries[0].base;
+      const roots = entries.map(root => root.dir);
       let full;
       try { full = fs.realpathSync(path.resolve(base, rel)); }
       catch { res.writeHead(404); return res.end(); }
