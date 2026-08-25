@@ -207,9 +207,13 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
     for (const f of fs.readdirSync(dir)) {
       if (f.startsWith('.')) continue;
       const full = path.join(dir, f);
+      let bundle = false;
+      let modified = null;
       try {
         const st = fs.statSync(full);
         if (st.isDirectory() && fs.existsSync(path.join(full, 'song.opz'))) {
+          bundle = true;
+          modified = st.mtime;
           const buf = fs.readFileSync(path.join(full, 'song.opz'));
           let info = {};
           try { info = JSON.parse(fs.readFileSync(path.join(full, 'info.json'), 'utf8')); } catch {}
@@ -238,7 +242,9 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
             meta: meta.songs[hashFile(buf)] || null,
           });
         }
-      } catch {}
+      } catch {
+        if (bundle) items.push({ file: f, bundle: true, auto, modified, verified: false, errorCode: 'ARCHIVE_PARSE_FAILED' });
+      }
     }
   };
   scanDir(libraryRoot, false);

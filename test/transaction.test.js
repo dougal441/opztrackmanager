@@ -381,6 +381,24 @@ test('failed draft retains sanitized evidence and never becomes verified', t => 
   assert.deepEqual(visibleBundles(invalid.libraryRoot), []);
 });
 
+test('corrupt published bundle remains visible as an unverified diagnostic', t => {
+  const { libraryRoot } = tempRoots(t);
+  const bundle = path.join(libraryRoot, 'corrupt-published');
+  fs.mkdirSync(bundle);
+  fs.writeFileSync(path.join(bundle, 'song.opz'), Buffer.from('not a project'));
+
+  const items = subject.scanLibrary({ songs: {} }, libraryRoot, null);
+  assert.deepEqual(items, [{
+    file: 'corrupt-published',
+    bundle: true,
+    auto: false,
+    modified: fs.statSync(bundle).mtime,
+    verified: false,
+    errorCode: 'ARCHIVE_PARSE_FAILED',
+  }]);
+  assert.ok(!JSON.stringify(items).includes(libraryRoot));
+});
+
 test('mutation conflict rejects before resolver work and releases after success or failure', async () => {
   let release;
   let started;
