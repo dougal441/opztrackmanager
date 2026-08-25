@@ -170,6 +170,77 @@ test('archive classification keeps manifest verification completeness and unicod
   assert.equal(subject.findBundle('project-only', false, libraryRoot, null).buffer.equals(fixture), true);
 });
 
+test('shelf data keeps archive counts evidence and newest first diagnostics separate', t => {
+  const { libraryRoot } = tempRoots(t);
+  const fixture = fs.readFileSync(FIXTURE);
+  const newest = schemaInfo(fixture, {
+    created: '2026-08-25T14:00:00.000Z',
+    metadata: { name: '夜の歌 🎶', tags: '深夜, α', notes: 'Ångström — 安全', kit: {} },
+    samplepacks: { captured: true, files: [
+      { path: '1-kick/01/kick.aif', bytes: 4, sha256: crypto.createHash('sha256').update('kick').digest('hex') },
+      { path: '1-kick/02/other.aif', bytes: 5, sha256: crypto.createHash('sha256').update('other').digest('hex') },
+      { path: '6-lead/01/lead.aif', bytes: 4, sha256: crypto.createHash('sha256').update('lead').digest('hex') },
+    ] },
+  });
+  const newestDir = writeSchemaBundle(libraryRoot, 'z-newest', newest, fixture);
+  for (const [relative, content] of [['1-kick/01/kick.aif', 'kick'], ['1-kick/02/other.aif', 'other'], ['6-lead/01/lead.aif', 'lead']]) {
+    const file = path.join(newestDir, 'samplepacks', relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content);
+  }
+
+  writeSchemaBundle(libraryRoot, 'b-tied', schemaInfo(fixture, { created: '2026-08-25T13:00:00.000Z' }), fixture);
+  writeSchemaBundle(libraryRoot, 'a-tied', schemaInfo(fixture, { created: '2026-08-25T13:00:00.000Z' }), fixture);
+  writeSchemaBundle(libraryRoot, 'bad', schemaInfo(fixture, {
+    created: '2026-08-25T15:00:00.000Z',
+    source: { device: true, label: 'OP-Z α', slot: 4 },
+    project: { ...schemaInfo(fixture).project, sha256: '0'.repeat(64) },
+  }), fixture);
+
+  const library = subject.scanLibrary({ songs: {} }, libraryRoot, null);
+  const shelf = subject.archiveShelfData(library, [{
+    id: '.partial-safe', verified: false, source: { device: false, label: 'fixture β', slot: 2 },
+    slot: 2, time: '2026-08-25T12:30:00.000Z', errorCode: 'ARCHIVE_INCOMPLETE',
+  }]);
+
+  assert.equal(shelf.verifiedCount, 3);
+  assert.equal(shelf.diagnosticCount, 2);
+  assert.deepEqual(shelf.verified.map(item => item.id), ['z-newest', 'a-tied', 'b-tied']);
+  assert.equal(shelf.verified[0].metadata.name, '夜の歌 🎶');
+  assert.equal(shelf.verified[0].project.parsed, true);
+  assert.equal(shelf.verified[0].project.storedBytesMatch, true);
+  assert.ok(shelf.verified[0].patterns.length > 0);
+  assert.ok(Array.isArray(shelf.verified[0].chains));
+  assert.deepEqual(shelf.verified[0].samplepacks.summary, {
+    fileCount: 3,
+    totalBytes: 13,
+    perTrack: {
+      '1-kick': { files: 2, bytes: 9 },
+      '2-snare': { files: 0, bytes: 0 },
+      '3-perc': { files: 0, bytes: 0 },
+      '4-fx': { files: 0, bytes: 0 },
+      '5-bass': { files: 0, bytes: 0 },
+      '6-lead': { files: 1, bytes: 4 },
+      '7-arpeggio': { files: 0, bytes: 0 },
+      '8-chord': { files: 0, bytes: 0 },
+    },
+  });
+  assert.equal(shelf.verified.find(item => item.id === 'a-tied').complete, false);
+  assert.deepEqual(shelf.diagnostics.map(item => item.category).sort(), ['corrupt', 'failed']);
+  assert.equal(shelf.diagnostics.find(item => item.id === 'bad').source.label, 'OP-Z α');
+  for (const diagnostic of shelf.diagnostics) {
+    assert.equal(Object.hasOwn(diagnostic, 'restoreEligible'), false);
+    assert.equal(Object.hasOwn(diagnostic, 'manualFreeEligible'), false);
+    assert.equal(Object.hasOwn(diagnostic, 'targetSlot'), false);
+    assert.equal(Object.hasOwn(diagnostic, 'actions'), false);
+  }
+
+  assert.deepEqual(subject.archiveShelfData([], []), {
+    verified: [], diagnostics: [], verifiedCount: 0, diagnosticCount: 0,
+  });
+  assert.ok(!JSON.stringify(shelf).includes(libraryRoot));
+});
+
 test('manifest diagnostics reject unsupported partial traversal symlink and stored evidence tampering', t => {
   const { libraryRoot } = tempRoots(t);
   const fixture = fs.readFileSync(FIXTURE);
