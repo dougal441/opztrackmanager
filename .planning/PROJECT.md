@@ -21,12 +21,11 @@ Dougal can free an OP-Z slot knowing the complete song can be verified and resto
 - ✓ User can swap project slots while the overwritten contents are automatically backed up — existing
 - ✓ User can browse, audition, import, move, remove, and snapshot sample packs — existing
 - ✓ User can work against a mounted OP-Z or a local `opzdisk/` fallback — existing
+- ✓ User can create and inspect a versioned complete-song archive with verified project, metadata, snippet status, and whole-grid evidence — Phase 2
+- ✓ User can browse verified archives in a first-class shelf and follow fail-closed, read-only manual-free guidance for an exact mounted slot — Phase 2
 
 ### Active
 
-- [ ] User can archive a slot and free it through one safe workflow
-- [ ] Every archive is verified by reparsing and byte-comparing the stored project before the source slot is cleared
-- [ ] An archive preserves the project, required instruments, metadata, and linked snippet needed for complete restoration
 - [ ] User can browse archived songs as a first-class shelf and restore one into any chosen slot
 - [ ] Existing target-slot contents are automatically backed up before restore or overwrite
 - [ ] The app detects likely split projects from pattern and chain structure without deciding automatically
@@ -74,6 +73,9 @@ Split detection can reuse existing parsed pattern occupancy, chains, track profi
 | Treat archive verification as a product feature | Confidence requires evidence, not a successful copy call | ✓ Good — Phase 1 |
 | Pin source identity and bytes for every mutation | A disappearing OP-Z must stop the transaction, never trigger fallback substitution | ✓ Good — Phase 1 |
 | Publish archives only after atomic stored-byte verification | Hidden drafts and sanitized diagnostics preserve truthful recovery status | ✓ Good — Phase 1 |
+| Keep project verification, archive completeness, restore eligibility, and manual-free eligibility separate | A valid project-only archive must never imply a complete recoverable song or safe physical clear | ✓ Good — Phase 2 |
+| Recompute manual-free eligibility from current archive and mounted-slot bytes | Stored approval or `opzdisk/` fallback could guide clearing the wrong physical project | ✓ Good — Phase 2 |
+| Leave every undocumented post-clear representation unclassified | Firmware behavior is not documented and Phase 2 performs no destructive hardware experiment | ✓ Good — Phase 2 |
 | Require user confirmation for split detection | Pattern clustering is heuristic and must not silently reinterpret songs | — Pending |
 | Validate clearing and synthesized projects on real hardware | Filesystem behavior and firmware acceptance cannot be assumed | — Pending |
 
@@ -95,4 +97,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-26 after Phase 1*
+*Last updated: 2026-08-26 after Phase 2*
