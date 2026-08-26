@@ -81,7 +81,7 @@ Plans:
 
 ### Phase 3: Guarded Restore & Instrument Recovery
 
-**Goal**: Users can restore a verified archive to a chosen slot without silently losing the slot's existing project or instrument grid.
+**Goal**: As a person who owns an OP-Z, I want to restore a verified archive to a chosen slot while preserving the slot's current project and instrument grid, so that I can recover songs without silently losing existing device data.
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: REST-01, REST-02, REST-03, REST-04, REST-05
