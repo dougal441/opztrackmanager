@@ -52,7 +52,7 @@ Plans:
 
 ### Phase 2: Verified Archive Shelf & Manual Freeing
 
-**Goal**: As an OP-Z owner, I want to create and inspect a complete verified archive before following guided manual clearing, so that I can safely free a slot without losing the complete song.
+**Goal**: As a person who owns an OP-Z, I want to create and inspect a complete verified archive before following guided manual clearing, so that I can safely free a slot without losing the complete song.
 **Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: ARCH-03, ARCH-05, SAFE-04
