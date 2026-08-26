@@ -1226,7 +1226,8 @@ test('archive escaping overflow and reduced motion contracts are explicit', () =
   assert.match(html, /archiving slot ['"] \+ archiveMatch\[1\]\.padStart\(2, '0'\) \+ '…'/);
   assert.match(html, /Manual freeing stopped\. The archive or mounted source no longer matches/);
   assert.match(html, /Manual freeing is unavailable until the project, whole sample-pack grid, metadata, and snippet status are portable and verified/);
-  assert.match(html, /Connect the original OP-Z in content mode, then refresh\. The mounted slot must still match this archive/);
+  assert.match(html, /Reconnect the original OP–Z, refresh, and try again/);
+  assert.match(html, /Connect the original OP–Z in content mode, then refresh\. The mounted slot must still match this archive/);
 });
 
 test('diagnostic actions stay absent from archive shelf diagnostics', () => {

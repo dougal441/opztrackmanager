@@ -662,7 +662,7 @@ function renderArchives() {
         : manual && manual.relation === 'mount_unavailable'
           ? 'The OP-Z is not available for confirmation of slot ' + paddedSlot + ' (“' + songName + '”). Reconnect it in content mode, then refresh and verify slot ' + paddedSlot + '.'
           : 'Slot ' + paddedSlot + ' could not be classified for “' + songName + '”. Do not assume it is empty. The archive remains retained.';
-    const preflightFailure = 'Manual freeing stopped. The archive or mounted source no longer matches. Reconnect the original OP-Z, refresh, and try again. The archive remains on this Mac.';
+    const preflightFailure = 'Manual freeing stopped. The archive or mounted source no longer matches. Reconnect the original OP–Z, refresh, and try again. The archive remains on this Mac.';
     const stop = manual && !manual.eligible
       ? '<div class="manualResult" role="alert" tabindex="-1" ' + (manual.stage === 'result' ? 'data-manual-result' : 'data-manual-focus') + '="' + attr(item.id) + '">' + esc(manual.stage === 'result' ? resultCopy : preflightFailure) + '</div>' : '';
     const result = manual && manual.stage === 'result' && manual.eligible
@@ -679,7 +679,7 @@ function renderArchives() {
         '<li><button class="btn" disabled data-manual-control="' + attr(item.id) + '" onclick="refreshManualFree(' + fileArg + ')">refresh and verify slot</button></li></ol>' + result + '</section>' : stop;
     const ineligibleCopy = item.manualFreeRelation === 'archive_incomplete'
       ? 'Manual freeing is unavailable until the project, whole sample-pack grid, metadata, and snippet status are portable and verified.'
-      : 'Connect the original OP-Z in content mode, then refresh. The mounted slot must still match this archive.';
+      : 'Connect the original OP–Z in content mode, then refresh. The mounted slot must still match this archive.';
     const manualAction = item.manualFreeEligible
       ? '<p><b>Manual-free eligibility:</b> current exact match</p><button class="btn manualPrepare" onclick="prepareManualFree(' + fileArg + ',this)">prepare manual freeing</button>'
       : '<p><b>Manual-free eligibility:</b> unavailable</p><p>' + esc(ineligibleCopy) + '</p>';
