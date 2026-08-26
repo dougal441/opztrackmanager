@@ -522,6 +522,7 @@ test('archive UI sends mutation header and confirms source intent', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   assert.match(html, /X-OPZ-Mutation/);
   assert.match(html, /Archive slot/);
+  assert.match(html, /complete sample-pack grid/);
   assert.match(html, /Device data/);
   assert.match(html, /STATE\.source/);
 });
@@ -543,9 +544,10 @@ test('mutation controls share one operation-aware busy wrapper', () => {
   assert.match(html, /async function runMutation\(operation, callback\)/);
   assert.match(html, /try \{ return await callback\(\); \}[\s\S]+finally/);
   assert.match(html, /querySelectorAll\('\[data-mutation\]'\)/);
-  for (const action of ['backup', 'doSwap', 'restore', 'removePack', 'importPack', 'snapshotInstruments', 'downloadPack']) {
+  for (const action of ['backup', 'doSwap', 'removePack', 'importPack', 'snapshotInstruments', 'downloadPack']) {
     assert.match(html, new RegExp('data-mutation="[^"]+"[^>]+onclick="' + action + '\\('), action);
   }
+  assert.doesNotMatch(html, /data-mutation="[^"]+"[^>]+onclick="restore\(/);
   assert.match(html, /runMutation\('archive slot ' \+ slot/);
 });
 
@@ -1063,7 +1065,7 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
   }
 
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
-  assert.match(html, /disabled[^>]+Phase 3[^>]+>load</);
+  assert.doesNotMatch(html, /onclick="restore\(/);
   assert.match(html, /disabled[^>]+Phase 3[^>]+>swap</);
   assert.match(html, /disabled[^>]+Phase 3[^>]+>remove/);
   assert.match(html, /disabled[^>]+Phase 3[^>]+>import/);
