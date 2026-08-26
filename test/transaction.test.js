@@ -1349,7 +1349,7 @@ test('archive refresh removes a cached manual-free checklist when current eligib
   const item = {
     id: 'archive-one', schemaVersion: 1, created: '2026-08-25T12:00:00.000Z', complete: true,
     metadata: { name: 'Song', tags: '', notes: '' },
-    source: { device: true, label: 'OP-Z', slot: 1 },
+    source: { device: true, label: 'OP-Z', slot: 10 },
     project: { path: 'song.opz', sha256: 'a'.repeat(64), bytes: 1, checked: '2026-08-25T12:00:00.000Z' },
     snippet: { status: 'unlinked' }, patterns: [], chains: [], usedPatterns: [],
     samplepacks: {
@@ -1370,17 +1370,25 @@ test('archive refresh removes a cached manual-free checklist when current eligib
     SETTINGS: {}, shelfLoading: false, shelfError: '', manualFreeState,
     TYPES: ['1-kick','2-snare','3-perc','4-fx','5-bass','6-lead','7-arpeggio','8-chord'],
     TYPE_LABELS: { '1-kick':'kick','2-snare':'snare','3-perc':'perc','4-fx':'fx','5-bass':'bass','6-lead':'lead','7-arpeggio':'arp','8-chord':'chord' },
-    document: { getElementById: id => id === 'archives' ? root : null },
-    esc: value => String(value ?? ''), attr: value => String(value ?? ''), matrixSvg: () => '',
+    document: {
+      getElementById: id => id === 'archives' ? root : null,
+      createElement: () => ({
+        innerHTML: '',
+        set textContent(value) { this.innerHTML = String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'); },
+      }),
+    },
+    matrixSvg: () => '',
     countLabel: (count, singular) => count + ' ' + singular + (count === 1 ? '' : 's'),
     api: async pathname => pathname === '/api/state' ? refreshed : {},
   });
+  vm.runInContext(html.match(/function esc\([\s\S]*?\n(?=function audioUrl)/)[0], context);
   vm.runInContext(html.match(/function renderArchives\([\s\S]*?\n\}\n(?=async function prepareManualFree)/)[0], context);
   vm.runInContext(html.match(/async function load\([\s\S]*?\n\}\n(?=function setTab)/)[0], context);
   context.render = () => context.renderArchives();
 
   context.renderArchives();
   assert.match(root.innerHTML, /Manual freeing checklist/);
+  assert.match(root.innerHTML, /value key 0 to select slot 10/);
   assert.match(root.innerHTML, /project \+ stop \+ shift/);
   await context.load();
   assert.equal(manualFreeState.size, 0);

@@ -353,8 +353,8 @@ async function runMutation(operation, callback) {
     render();
   }
 }
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-function attr(s) { return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+function attr(s) { return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
 function audioUrl(path, root) { return '/audio?path=' + encodeURIComponent(path) + (root === 'device' ? '&root=device' : ''); }
 function sourceGuidance(source, outcome) {
   if (!source) return 'Reconnect the source, then refresh.';
