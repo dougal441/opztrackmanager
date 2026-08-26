@@ -44,9 +44,12 @@ created: 2026-08-27
 
 - backup publication fails before write;
 - selected target changes after preview;
+- mounted source is replaced with the same public label and project bytes after preview;
 - archive evidence changes after shelf render;
+- a different valid archive revision is substituted at the same bundle ID;
 - source disappears before write and between write/readback;
 - target readback differs or no longer parses;
+- annotation persistence fails after verified project output and returns non-success with retained recovery;
 - rollback succeeds and rollback cannot safely run;
 - grid replacement encounters a stale extra file;
 - mounted transaction loses source while `opzdisk/` is available;
@@ -70,4 +73,3 @@ created: 2026-08-27
 - [x] No new test framework or dependency.
 - [x] Source disappearance and fallback substitution are covered.
 - [x] `nyquist_compliant: true` recorded.
-

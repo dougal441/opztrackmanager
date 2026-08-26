@@ -62,6 +62,8 @@ Before `restore project` enables, show all of:
 
 If the slot is missing, unreadable, or the source changed, show a stop message and no enabled action. Never call it empty unless a later hardware-validated classifier says so.
 
+The UI carries a bounded opaque source token and archive revision from the same rendered state into the request. Neither is presented as technical evidence to the user. If either changes, the server stops before backup/write and the UI uses the documented stale copy.
+
 ### Project restore confirmation
 
 Use one native `confirm()` after the inline preview; the inline preview is the primary evidence, not the dialog. Exact copy:
@@ -92,8 +94,10 @@ On any failure after mutation begins, focus a `role="alert"` result and show:
 
 - `restore did not complete`;
 - recovery reference;
-- either `original bytes were restored and verified` or `recovery is required`;
+- exactly one truthful state: `original bytes were restored and verified`, `project bytes verified; annotations incomplete`, or `recovery is required`;
 - sanitized reconnect/restore guidance.
+
+For the annotation-incomplete state, keep the verified project bytes in place, return non-success, retain the pre-restore recovery archive, and show: `Project bytes were restored and verified, but song annotations were not saved. The restore did not fully complete. Recovery {id} remains retained.`
 
 Never show raw paths, temporary filenames, device identifiers, or stack errors.
 
@@ -109,11 +113,12 @@ Keep op1.fun installation disabled with visible copy: `installation remains unav
 |-------|-------------------|
 | Initial | Target placeholder selected; project restore disabled; no implicit slot. Whole-grid availability depends only on fresh complete-grid verification. |
 | Selected | Current live target preview shown; project restore enabled only when readable and fingerprinted. Whole-grid availability remains independent and depends only on fresh complete-grid verification. |
-| Archive stale | Hide/disable actions and say `Archive changed. Refresh before restoring.` |
-| Target stale | Stop without backup/write and say `Slot {NN} changed after preview. Refresh and review it again.` |
+| Archive stale | A changed revision digest hides/disables actions and says `Archive changed. Refresh before restoring.` |
+| Target stale | A changed project fingerprint or opaque source token stops without backup/write and says `Slot {NN} changed after preview. Refresh and review it again.` |
 | Busy | All mutation controls disabled; `aria-busy="true"`; shared live status names the operation. |
 | Success | Refresh state, keep Archive Shelf open, focus verified result with recovery reference. |
 | Rolled back | Non-success alert; show verified rollback and retained recovery reference. |
+| Annotations incomplete | Non-success alert; show that project bytes verified and remain in place, annotations were not saved, and the pre-restore recovery reference remains retained. |
 | Recovery required | Non-success alert; show retained recovery reference and reconnect guidance. |
 | Mount lost | Stop further writes; do not switch to local fixture; show source-specific reconnect copy. |
 
@@ -154,6 +159,7 @@ Use only existing focus/hover/disclosure transitions. Respect the existing `pref
 | Grid busy | `protecting and restoring the whole instrument grid…` |
 | Success | `restore verified` |
 | Failure | `restore did not complete` |
+| Annotation failure | `Project bytes were restored and verified, but song annotations were not saved. The restore did not fully complete. Recovery {id} remains retained.` |
 | Stale archive | `Archive changed. Refresh before restoring.` |
 | Stale target | `Slot {NN} changed after preview. Refresh and review it again.` |
 | Mounted verification | `Written bytes were reread and verified on the mounted OP-Z in Content Mode.` |

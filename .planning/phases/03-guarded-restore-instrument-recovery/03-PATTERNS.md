@@ -37,6 +37,8 @@ Restore uses the full check before mutation and root-only check after intentiona
 
 Adjust `classifyArchive()`/`findBundle()` so the bytes used for classification are the bytes returned for restore. Avoid the current classify-then-independent-read seam. Restore eligibility is derived from fresh classification: verified project for project restore; verified complete grid for grid restore.
 
+Expose two opaque, bounded freshness values only: a process-secret HMAC source token derived from canonical root/projects device+inode identity, and an archive revision digest derived from exact manifest/project evidence. Submit both back on restore; never expose their raw inputs.
+
 ### One recovery receipt
 
 Add a small helper that attaches `{ id, auto: true, state }` to the existing `transactionError`. Extend the safe serializer to include only this validated shape. Reuse it for restore, swap, and grid/instrument operations.
@@ -72,7 +74,7 @@ Route restore, swap, and instrument actions through `runMutation()`. The existin
 
 ### Stale-preview binding
 
-Send the slot plus its exact current hash/byte identity from the selected preview. Reset target selection after state refresh if that exact slot no longer matches. Server validation remains authoritative.
+Send the archive revision plus the slot's exact current hash/byte identity and opaque source token from the selected preview. Reset target selection after state refresh if any exact value no longer matches. Server validation remains authoritative.
 
 ### Preserve action separation
 
@@ -89,6 +91,7 @@ Use `tempRoots()`, HTTP request helpers, `testHooks`, `snapshotRegularFiles()`, 
 - project restore success verifies recovery publication, exact output, parse, and receipt;
 - pre-write backup failure leaves target unchanged;
 - stale fingerprint and archive tamper fail before write;
+- same-label/same-byte source replacement and valid archive substitution fail before backup/write;
 - readback failure returns non-success plus recovery ID;
 - source disappearance never touches fallback;
 - swap protects both slots and reports both recovery IDs;
@@ -108,4 +111,3 @@ Use `tempRoots()`, HTTP request helpers, `testHooks`, `snapshotRegularFiles()`, 
 - Returning absolute paths or raw errors in a recovery receipt.
 - Re-enabling every dormant route before it shares the guarded path.
 - Claiming firmware acceptance from host Content Mode readback.
-

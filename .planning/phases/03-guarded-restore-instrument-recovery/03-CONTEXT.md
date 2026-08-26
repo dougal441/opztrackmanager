@@ -15,35 +15,35 @@ Restore a freshly revalidated archive to an explicitly chosen project slot only 
 ## Implementation Decisions
 
 ### Explicit Restore Intent
-- Begin with no target selected. Before confirmation, show the chosen slot, current song name, source kind, project identity, and current pattern matrix.
-- Bind confirmation to that exact target fingerprint. If the source, slot bytes, or archive changes before the transaction starts, stop without a backup or write.
-- Offer project restore only for a freshly classified archive whose stored project bytes, manifest evidence, and parser result still agree.
-- Project restore is always the default. Never infer or silently include instrument files.
+- **D-01:** Begin with no target selected. Before confirmation, show the chosen slot, current song name, source kind, project identity, and current pattern matrix.
+- **D-02:** Bind confirmation to that exact target fingerprint. If the source, slot bytes, or archive changes before the transaction starts, stop without a backup or write. Represent source identity and archive revision with bounded opaque digests; never expose canonical paths or raw device/inode values.
+- **D-03:** Offer project restore only for a freshly classified archive whose stored project bytes, manifest evidence, and parser result still agree.
+- **D-04:** Project restore is always the default. Never infer or silently include instrument files.
 
 ### Guarded Project Transaction
-- Reuse the existing global mutation guard, captured source identity, immutable byte buffer, archive classifier, and verified archive publisher.
-- Lock the sequence: validate request; acquire the mutation guard; resolve one source; capture the target; pin freshly revalidated archive bytes; publish a verified automatic backup; recheck source, target, and archive; replace only the chosen project; reread, exact-byte-compare, hash/length-check, and parse the written project.
-- A mounted operation never calls the fallback resolver again. A missing or malformed target fails closed rather than becoming an unprotected empty slot.
-- Retain the verified recovery archive after success. Update annotations only after the written project verifies.
+- **D-05:** Reuse the existing global mutation guard, captured source identity, immutable byte buffer, archive classifier, and verified archive publisher.
+- **D-06:** Lock the sequence: validate request; acquire the mutation guard; resolve one source; capture the target; pin freshly revalidated archive bytes; publish a verified automatic backup; recheck source, target, and archive; replace only the chosen project; reread, exact-byte-compare, hash/length-check, and parse the written project.
+- **D-07:** A mounted operation never calls the fallback resolver again. A missing or malformed target fails closed rather than becoming an unprotected empty slot.
+- **D-08:** Retain the verified recovery archive after success. Update annotations only after the written project verifies.
 
 ### Failure and Recovery Receipt
-- Once canonical target mutation begins, every later failure returns non-success plus the retained recovery archive ID and a sanitized recovery state.
-- Report `rolled_back` only after the original bytes are rewritten and reread successfully against the same still-pinned source. Otherwise report `recovery_required`.
-- Source loss or source replacement forbids further writes, including rollback. Preserve the recovery artifact and provide reconnect/restore guidance.
-- Never claim success from a completed write alone; stored bytes must pass exact reread and parse checks.
+- **D-09:** Once canonical target mutation begins, every later failure returns non-success plus the retained recovery archive ID and a sanitized recovery state.
+- **D-10:** Report `rolled_back` only after the original bytes are rewritten and reread successfully against the same still-pinned source. Otherwise report `recovery_required`.
+- **D-11:** Source loss or source replacement forbids further writes, including rollback. Preserve the recovery artifact and provide reconnect/restore guidance.
+- **D-12:** Never claim success from a completed write alone; stored bytes must pass exact reread and parse checks.
 
 ### Whole-Grid Instrument Recovery
-- Whole-grid restoration is a separate, clearly labelled action and is available only when the archive's complete sample-pack manifest still verifies.
-- Before any live-grid mutation, create and verify a complete recovery snapshot of the current grid.
-- Stage and verify the archived grid, replace it as one guarded batch, and verify every declared file and required absence afterward. Stop at the first mismatch or source failure and return the recovery reference.
-- Reuse this recovery boundary for existing instrument move/swap, remove, import, snapshot, and pack-install actions; do not reintroduce weaker one-off write paths. Require import/install targets to be empty and validate stored AIFF bytes.
-- Protect both project slots with verified automatic backups before a slot swap changes either one.
+- **D-13:** Whole-grid restoration is a separate, clearly labelled action and is available only when the archive's complete sample-pack manifest still verifies.
+- **D-14:** Before any live-grid mutation, create and verify a complete recovery snapshot of the current grid.
+- **D-15:** Stage and verify the archived grid, replace it as one guarded batch, and verify every declared file and required absence afterward. Stop at the first mismatch or source failure and return the recovery reference.
+- **D-16:** Reuse this recovery boundary for existing instrument move/swap, remove, import, snapshot, and pack-install actions; do not reintroduce weaker one-off write paths. Require import/install targets to be empty and validate stored AIFF bytes.
+- **D-17:** Protect both project slots with verified automatic backups before a slot swap changes either one.
 
 ### Source Modes and UAT
-- Apply the same transaction contract to mounted OP-Z and `opzdisk/`; keep the initially selected source kind visible and fixed for the operation.
-- Local tests cover busy conflicts, stale confirmation, bad archives, write/readback failures, rollback, source disappearance, fallback substitution, exact grid replacement, and recovery receipts.
-- Direct mounted UAT uses API/filesystem access only: restore a live slot's own verified bytes to that explicitly selected slot, exercise a whole-grid same-byte restore, verify recovery references, and prove final content hashes with no unrelated device-byte changes.
-- Host readback proves Content Mode byte acceptance only. Do not claim post-eject firmware load or playback acceptance without a separate physical test.
+- **D-18:** Apply the same transaction contract to mounted OP-Z and `opzdisk/`; keep the initially selected source kind visible and fixed for the operation.
+- **D-19:** Local tests cover busy conflicts, stale confirmation, bad archives, write/readback failures, rollback, source disappearance, fallback substitution, exact grid replacement, and recovery receipts.
+- **D-20:** Direct mounted UAT uses API/filesystem access only: restore a live slot's own verified bytes to that explicitly selected slot, exercise a whole-grid same-byte restore, verify recovery references, and prove final content hashes with no unrelated device-byte changes.
+- **D-21:** Host readback proves Content Mode byte acceptance only. Do not claim post-eject firmware load or playback acceptance without a separate physical test.
 
 ### the agent's Discretion
 - Exact receipt field names, restore-panel spacing, status copy, and the smallest shared helper boundaries may follow existing conventions.

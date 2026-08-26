@@ -50,6 +50,8 @@ An intentional restore changes the project, so the smallest correct extension is
 
 Do not create a transaction class. Two focused functions plus the existing wrapper cover every caller.
 
+The browser cannot safely receive raw realpaths or device/inode values. Publish one bounded opaque source token computed with HMAC-SHA-256 over the captured root/projects identity and a process-local random secret. Recompute it from the freshly captured source inside the guarded request. This detects a replacement volume even when its public label and project bytes match, without disclosing filesystem identity.
+
 ### Verified recovery publication
 
 `archiveCapturedProject()` already writes into a hidden draft, flushes, rereads exact bytes, parses, records SHA-256/length evidence, verifies optional whole-grid bytes, revalidates the source, and atomically publishes. Use it with `AUTO_DIR` for recovery; do not create a second backup format. [VERIFIED: `server.js`, `archiveCapturedProject`]
@@ -57,6 +59,8 @@ Do not create a transaction class. Two focused functions plus the existing wrapp
 ### Fresh archive classification
 
 `classifyArchive()` validates schema 1, reads project evidence through canonical containment, parses stored project bytes, and checks exact sample-pack and snippet evidence. `findBundle()` currently classifies and then separately rereads `song.opz`; close that TOCTOU gap by returning the exact bytes read by the classifier or rereading through evidence and comparing to the classification immediately before use. [VERIFIED: `server.js`, `classifyArchive` / `findBundle`]
+
+Bind user confirmation to the reviewed archive revision, not only its ID. Return one bounded revision digest computed from the exact manifest bytes plus the evidenced project bytes; the manifest already contains every grid/snippet content hash. Submit that digest for both project and grid restore and compare it to fresh classification before backup or mutation. A different valid archive at the same ID must be treated as stale intent.
 
 ### Exact grid evidence
 
@@ -66,7 +70,7 @@ Do not create a transaction class. Two focused functions plus the existing wrapp
 
 ### Project restore
 
-1. Strictly validate `file`, `auto`, `slot`, and the expected target fingerprint from the preview.
+1. Strictly validate `file`, `auto`, `slot`, the reviewed archive revision, and the expected target/source fingerprint from the preview.
 2. Enter `withMutation()` before any resolver work.
 3. Resolve the source once and capture the target project.
 4. Freshly revalidate and pin the archive project bytes.
@@ -77,7 +81,7 @@ Do not create a transaction class. Two focused functions plus the existing wrapp
 9. Reread the canonical target, require exact buffer equality, SHA-256/length equality, and successful `parseProject()`.
 10. Return success with the recovery ID only after all checks pass.
 
-If a failure occurs after canonical replacement starts, attempt rollback only while root identity is still valid. Reread and parse the rollback before reporting `rolled_back`; otherwise report `recovery_required`. Both are non-success responses and retain the recovery ID.
+If a failure occurs after canonical replacement starts, including annotation persistence, return non-success with the retained recovery reference. Attempt rollback only while root identity is still valid and the operation cannot safely retain a verified new project; reread and parse any rollback before reporting `rolled_back`, otherwise report `recovery_required` or retained verified-output guidance. Never turn a post-mutation failure into a 2xx response.
 
 `fs.renameSync(temp, target)` is the shortest same-directory replacement on macOS, but removable-volume semantics are not promised by Node or the OP-Z documentation. Treat it as a write primitive, not a guarantee: flush, reread, and retain recovery evidence. [VERIFIED: Node built-in API used throughout repository; hardware semantics require UAT]
 
@@ -140,6 +144,8 @@ No modal framework, wizard, router, component extraction, or duplicate slot fetc
 Use the existing Node `node:test` suite and temporary roots. Required failpoints:
 
 - stale target after preview;
+- same-label/same-bytes source replacement after preview;
+- different valid archive revision substituted after preview;
 - archive changed after classification;
 - recovery publication failure before mutation;
 - source disappearance before write and after write;
@@ -161,4 +167,3 @@ Use three vertical plans:
 3. whole-grid recovery plus local instrument actions and mounted API/filesystem UAT.
 
 This keeps every plan executable and testable while avoiding a speculative transaction framework.
-
