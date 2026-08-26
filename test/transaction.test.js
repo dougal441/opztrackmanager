@@ -40,6 +40,29 @@ function visibleBundles(libraryRoot) {
   return fs.readdirSync(libraryRoot).filter(name => !name.startsWith('.'));
 }
 
+function snapshotRegularFiles(root) {
+  const records = [];
+  const walk = dir => {
+    for (const name of fs.readdirSync(dir).sort()) {
+      const file = path.join(dir, name);
+      const stat = fs.lstatSync(file, { bigint: true });
+      if (stat.isDirectory()) walk(file);
+      else if (stat.isFile()) {
+        const bytes = fs.readFileSync(file);
+        records.push({
+          path: path.relative(root, file),
+          bytes: Number(stat.size),
+          mode: Number(stat.mode & 0o7777n),
+          mtimeNs: String(stat.mtimeNs),
+          sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+        });
+      }
+    }
+  };
+  walk(root);
+  return records.sort((a, b) => a.path.localeCompare(b.path));
+}
+
 function schemaInfo(bytes, overrides = {}) {
   const checked = '2026-08-25T12:00:00.000Z';
   return {
@@ -1348,4 +1371,74 @@ test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, 
   const after = fs.readFileSync(sourcePath);
   assert.equal(after.length, before.length);
   assert.equal(crypto.createHash('sha256').update(after).digest('hex'), beforeSha256);
+});
+
+test('manual free mounted UAT preserves every regular file beneath the OP-Z root', {
+  skip: process.env.OPZ_HARDWARE_UAT !== '1',
+}, async t => {
+  const mountedRoot = '/Volumes/OP-Z';
+  const slot = Array.from({ length: 10 }, (_, index) => index + 1).find(number => {
+    const file = path.join(mountedRoot, 'projects', `project${String(number).padStart(2, '0')}.opz`);
+    try { return fs.lstatSync(file).isFile() && fs.statSync(file).size > 0 && parseProject(fs.readFileSync(file)); }
+    catch { return false; }
+  });
+  assert.ok(slot, 'at least one readable non-empty mounted slot is required');
+  const before = snapshotRegularFiles(mountedRoot);
+  assert.ok(before.length > 0, 'mounted root must contain regular files');
+
+  const roots = tempRoots(t);
+  const metaFile = path.join(path.dirname(roots.libraryRoot), 'meta.json');
+  fs.writeFileSync(metaFile, JSON.stringify({ songs: {} }));
+  const previousRoot = process.env.OPZ_ROOT;
+  process.env.OPZ_ROOT = mountedRoot;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = null;
+  subject.testHooks.metaFile = metaFile;
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (previousRoot === undefined) delete process.env.OPZ_ROOT;
+    else process.env.OPZ_ROOT = previousRoot;
+    if (subject.server.listening) subject.server.close();
+  });
+
+  let retainedBundle;
+  try {
+    await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+    const archived = await requestJson(subject.server, '/api/backup', {
+      slot,
+      name: 'Phase 2 mounted read-only UAT',
+      deep: true,
+    });
+    assert.equal(archived.status, 200);
+    assert.equal(archived.body.verified, true);
+    assert.equal(archived.body.complete, true);
+    retainedBundle = subject.resolveChild(roots.libraryRoot, subject.validateBundleId(archived.body.file));
+    const classification = subject.classifyArchive(retainedBundle);
+    assert.equal(classification.verified, true);
+    assert.equal(classification.complete, true);
+
+    const preflight = await request(subject.server, '/api/manual-free?file=' + encodeURIComponent(archived.body.file));
+    assert.equal(preflight.status, 200);
+    assert.equal(preflight.body.eligible, true);
+    assert.equal(preflight.body.relation, 'archived_song_present');
+    assert.equal(preflight.body.archive.slot, slot);
+    assert.equal(preflight.body.archive.source, 'OP-Z');
+
+    subject.testHooks.manualCaptureSource = (currentSlot, source) => ({
+      ...subject.captureSource(currentSlot, source),
+      sha256: '0'.repeat(64),
+    });
+    const mismatch = await request(subject.server, '/api/manual-free?file=' + encodeURIComponent(archived.body.file));
+    assert.equal(mismatch.status, 200);
+    assert.equal(mismatch.body.eligible, false);
+    assert.equal(mismatch.body.relation, 'unexpected_non_empty_replacement');
+    delete subject.testHooks.manualCaptureSource;
+    assert.ok(fs.existsSync(retainedBundle));
+  } finally {
+    const after = snapshotRegularFiles(mountedRoot);
+    assert.deepEqual(after, before);
+    const evidence = crypto.createHash('sha256').update(JSON.stringify(before)).digest('hex');
+    t.diagnostic(`mounted OP-Z unchanged: ${before.length} regular files, evidence ${evidence}`);
+  }
+  assert.equal(subject.classifyArchive(retainedBundle).complete, true);
 });
