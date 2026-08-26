@@ -171,6 +171,12 @@
   .diagnosticMeta { font: 10px/1.6 var(--mono); color: var(--dim); margin-top: 4px; }
   .archiveError { border: 1px solid var(--ink); padding: 14px; margin-bottom: 16px; background: var(--surface); }
   .archiveError .btn { margin-top: 10px; min-height: 44px; }
+  .manualFree { grid-column: 1 / -1; border-top: 1px solid var(--line2); padding-top: 18px; }
+  .manualFree h3, .manualResult { outline: none; }
+  .manualFree ol { margin: 14px 0 0 22px; }
+  .manualFree li { margin: 12px 0; }
+  .manualFree label { display: flex; gap: 10px; align-items: start; min-height: 44px; }
+  .manualFree input { margin-top: 3px; }
   @media (max-width: 900px) {
     .archiveSummary { grid-template-columns: 1fr; }
     .archiveExpanded { grid-template-columns: 1fr; }
@@ -308,6 +314,7 @@
 'use strict';
 let STATE = null, AIFS = null, SETTINGS = {}, mutationBusy = null, lastStatus = '';
 let shelfLoading = true, shelfError = '';
+const manualFreeState = new Map();
 let expanded = JSON.parse(localStorage.getItem('opz.expanded') || 'null');
 let tab = localStorage.getItem('opz.tab') || 'songs';
 let selCell = null, pkPage = 1;
@@ -631,6 +638,33 @@ function renderArchives() {
       ? '<p class="evidenceValue"><b>Snippet:</b> ' + esc(item.snippet.status) + ' · ' + esc(item.snippet.path) +
         ' · <code>' + esc(item.snippet.sha256) + '</code> · ' + esc(item.snippet.bytes) + ' bytes</p>'
       : '<p><b>Snippet:</b> ' + esc(item.snippet.status) + '</p>';
+    const fileArg = attr(JSON.stringify(item.id));
+    const manual = manualFreeState.get(item.id);
+    const slot = item.source.slot;
+    const valueKey = slot === 10 ? 0 : slot;
+    const identity = 'archive ' + item.id + ' · “' + (item.metadata.name || 'untitled') + '” · slot ' + String(slot).padStart(2, '0') + ' · ' + item.source.label;
+    const stop = manual && !manual.eligible
+      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-focus="' + attr(item.id) + '">' + esc(manual.guidance) + '</div>' : '';
+    const result = manual && manual.stage === 'result'
+      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-focus="' + attr(item.id) + '">' + esc(manual.relation === 'archived_song_present'
+        ? 'Archived song still present. Stop; do not repeat the clear gesture. The archive remains retained.'
+        : manual.relation === 'unexpected_non_empty_replacement'
+          ? 'Unexpected non-empty replacement. Stop and inspect the device. The archive remains retained.'
+          : manual.relation === 'mount_unavailable'
+            ? 'Mount unavailable. Reconnect in content mode and retry. The archive remains retained.'
+            : 'Slot state is unclassified. Do not assume it is empty. The archive remains retained.') + '</div>' : '';
+    const checklist = manual && manual.eligible
+      ? '<section class="manualFree" aria-label="Manual freeing checklist"><h3 tabindex="-1" data-manual-focus="' + attr(item.id) + '">Manual freeing checklist</h3>' +
+        '<p><b>Exact identity:</b> ' + esc(identity) + '</p>' +
+        '<label><input type="checkbox" onchange="acknowledgeManualFree(' + fileArg + ',this.checked)"> I confirm this exact archive, song, source, and slot.</label>' +
+        '<ol><li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Safely eject.</b> Eject the OP-Z disk in Finder, or press play while it is in content/boot mode. Wait for the disk to disappear and the OP-Z to finish syncing/restarting before unplugging USB or powering off.</span></label></li>' +
+        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Select the archived project.</b> Disconnect USB if needed. On the OP-Z, hold project and press value key ' + esc(valueKey) + ' to select slot ' + esc(String(slot).padStart(2, '0')) + '. Confirm the song before continuing.</span></label></li>' +
+        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Clear the project on the device.</b> Hold project + stop + shift to clear the entire selected project.</span></label></li>' +
+        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Reconnect in content mode.</b> Power the OP-Z off. Hold track while turning it on, connect USB, and wait for the OP-Z disk to mount.</span></label></li>' +
+        '<li><button class="btn" disabled data-manual-control="' + attr(item.id) + '" onclick="refreshManualFree(' + fileArg + ')">refresh and verify slot</button></li></ol>' + result + '</section>' : stop;
+    const manualAction = item.manualFreeEligible
+      ? '<p><b>Manual-free eligibility:</b> current exact match</p><button class="btn acc" onclick="prepareManualFree(' + fileArg + ',this)">prepare manual freeing</button>'
+      : '<p><b>Manual-free eligibility:</b> unavailable</p><p>' + esc(item.manualFreeReason) + '</p>';
     return '<details class="archiveRow"><summary class="archiveSummary" data-archive-id="' + attr(item.id) + '">' +
       '<div><div class="archiveName">' + nameMarkup + '</div><div class="archiveTags">' + tagsMarkup + '</div></div>' +
       matrixSvg(item, 136, 'Step activity matrix for “' + (item.metadata.name || 'untitled') + '”') +
@@ -653,8 +687,7 @@ function renderArchives() {
       ' · <b>Total bytes:</b> ' + item.samplepacks.summary.totalBytes + '</p><p class="evidenceValue">' + esc(trackText) + '</p>' + fileEvidence + '</section>' +
       '<section class="evidenceGroup"><h3>Provenance and action</h3><p><b>Source:</b> ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
       '</p><p><b>Source slot:</b> ' + esc(String(item.source.slot).padStart(2, '0')) + '</p><p><b>Created:</b> <time datetime="' + attr(item.created) + '">' +
-      esc(new Date(item.created).toLocaleString()) + '</time></p><p><b>Manual-free eligibility:</b> unavailable</p>' +
-      '<p>Manual freeing is unavailable until the project, whole sample-pack grid, metadata, and snippet status are portable and verified.</p></section>' +
+      esc(new Date(item.created).toLocaleString()) + '</time></p>' + manualAction + '</section>' + checklist +
       '</div></details>';
   }).join('') : '<div class="empty"><b>No verified archives yet</b><br>Open a song, then choose “archive complete song”.</div>';
   const diagnosticMarkup = shelf.diagnostics.length ? shelf.diagnostics.map(item => '<details class="diagnosticRow"><summary class="diagnosticSummary">' +
@@ -666,6 +699,41 @@ function renderArchives() {
     '<div class="archiveCount" aria-live="polite">' + esc(countLabel(shelf.verifiedCount, 'verified archive')) + '</div></div>' + verifiedMarkup +
     '<section class="archiveDiagnostics" aria-labelledby="archiveDiagnosticsHeading"><h2 id="archiveDiagnosticsHeading">Archive diagnostics</h2>' +
     '<div class="archiveCount">' + esc(countLabel(shelf.diagnosticCount, 'archive diagnostic')) + '</div>' + diagnosticMarkup + '</section>';
+}
+async function prepareManualFree(file, button) {
+  button.disabled = true;
+  button.textContent = 'checking…';
+  button.setAttribute('aria-busy', 'true');
+  try {
+    const result = await api('/api/manual-free?file=' + encodeURIComponent(file));
+    manualFreeState.set(file, { ...result, stage: result.eligible ? 'checklist' : 'stop' });
+  } catch {
+    manualFreeState.set(file, { eligible: false, relation: 'unclassified',
+      guidance: 'Preflight stopped safely. Reconnect the original OP-Z and refresh. The archive remains retained.', stage: 'stop' });
+  }
+  renderArchives();
+  const focus = [...document.querySelectorAll('[data-manual-focus]')].find(element => element.dataset.manualFocus === file);
+  if (focus) focus.focus();
+}
+function acknowledgeManualFree(file, checked) {
+  document.querySelectorAll('[data-manual-control]').forEach(control => {
+    if (control.dataset.manualControl === file) control.disabled = !checked;
+  });
+}
+async function refreshManualFree(file) {
+  let result;
+  try {
+    result = await api('/api/manual-free?file=' + encodeURIComponent(file));
+    manualFreeState.set(file, { ...result, stage: 'result' });
+  } catch {
+    result = { eligible: false, relation: 'unclassified',
+      guidance: 'Refresh stopped safely because the archive or source could not be revalidated. The archive remains retained.' };
+    manualFreeState.set(file, { ...result, stage: 'result' });
+  }
+  renderArchives();
+  const focus = [...document.querySelectorAll('[data-manual-focus]')].find(element => element.dataset.manualFocus === file);
+  if (focus) focus.focus();
+  toast(result.relation === 'archived_song_present' ? 'archived song still present' : result.guidance);
 }
 async function restore(file, auto, hasInstruments, rid) {
   const slot = parseInt(document.getElementById(rid).value, 10);

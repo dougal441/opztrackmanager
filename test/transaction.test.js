@@ -1197,6 +1197,7 @@ test('archive success always captures complete grid then opens and focuses shelf
 
 test('manual free is device-only, request-local, exact-match, and fail-closed', async t => {
   const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
   const source = { ...roots.source, device: true, label: 'fixture OP-Z' };
   const archived = subject.archiveCapturedProject(subject.captureSource(1, source), {
     libraryRoot: roots.libraryRoot,
@@ -1205,10 +1206,15 @@ test('manual free is device-only, request-local, exact-match, and fail-closed', 
     metadata: { name: 'Exact song' },
   });
   let fallbackCalls = 0;
+  let finalChecks = 0;
   subject.testHooks.libraryRoot = roots.libraryRoot;
   subject.testHooks.autoRoot = null;
   subject.testHooks.deviceRootResolver = () => ({ root: roots.sourceRoot, device: true, label: source.label });
   subject.testHooks.sourceResolver = () => { fallbackCalls++; return roots.source; };
+  subject.testHooks.manualAssertCapturedSource = captured => {
+    finalChecks++;
+    return subject.assertCapturedSource(captured);
+  };
   t.after(() => {
     for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
     if (subject.server.listening) subject.server.close();
@@ -1226,6 +1232,9 @@ test('manual free is device-only, request-local, exact-match, and fail-closed', 
     guidance: 'Archive and mounted slot match. Confirm the exact identity before following the on-device checklist.',
   });
   assert.equal(fallbackCalls, 0);
+  assert.equal(finalChecks, 1);
+  const state = await request(subject.server, '/api/state');
+  assert.equal(state.body.archiveShelf.verified.find(item => item.id === archived.file).manualFreeEligible, true);
   assert.ok(fs.readFileSync(path.join(roots.libraryRoot, archived.file, 'song.opz')).equals(archiveBefore));
   assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(sourceBefore));
 
@@ -1249,6 +1258,7 @@ test('manual free is device-only, request-local, exact-match, and fail-closed', 
   assert.equal(unavailable.status, 200);
   assert.equal(unavailable.body.relation, 'mount_unavailable');
   assert.equal(fallbackCalls, 0);
+  assert.doesNotMatch(subject.manualFreeInspection.toString(), /getSource|withMutation|writeFile|rename|unlink|rmSync/);
 });
 
 test('manual free rejects hostile and incomplete archive selectors without an action', async t => {

@@ -423,10 +423,12 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   return items;
 }
 
-function archiveShelfData(library, drafts) {
+function archiveShelfData(library, drafts, inspectManualFree) {
   const byNewest = (a, b) => String(b.created || '').localeCompare(String(a.created || ''))
     || String(a.id).localeCompare(String(b.id));
   const verified = library.filter(item => item.verified === true).map(item => {
+    let manualFree = null;
+    try { manualFree = inspectManualFree ? inspectManualFree(item.file, item.auto) : null; } catch {}
     const perTrack = Object.fromEntries(PACK_TYPES.map(type => [type, { files: 0, bytes: 0 }]));
     const files = item.samplepacks.files.map(evidence => {
       const [type, slotText] = evidence.path.split('/');
@@ -462,7 +464,9 @@ function archiveShelfData(library, drafts) {
       verified: true,
       complete: item.complete === true,
       restoreEligible: item.restoreEligible === true,
-      manualFreeEligible: item.manualFreeEligible === true,
+      manualFreeEligible: manualFree ? manualFree.eligible === true : item.manualFreeEligible === true,
+      manualFreeRelation: manualFree && manualFree.relation || null,
+      manualFreeReason: manualFree && manualFree.guidance || 'Connect the original mounted OP-Z and refresh to check eligibility.',
     };
   }).sort(byNewest);
   const diagnostics = [
@@ -943,6 +947,54 @@ function findBundle(file, auto, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   }
 }
 
+function manualFreeInspection(file, options = {}) {
+  const id = validateBundleId(file);
+  const dir = resolveChild(options.libraryRoot || LIB_DIR, id);
+  const classification = classifyArchive(dir);
+  if (!classification.verified) {
+    throw requestError(409, 'BUNDLE_UNVERIFIED', 'Library bundle is not verified and cannot guide manual freeing.');
+  }
+  const archive = {
+    id,
+    name: classification.metadata.name || 'untitled',
+    slot: classification.source.slot,
+    source: classification.source.label,
+  };
+  const result = (relation, guidance, eligible = false) => ({ eligible, relation, archive, guidance });
+  if (!classification.complete) {
+    return result('archive_incomplete', 'This verified project archive is not a complete portable song archive. Create a complete archive first.');
+  }
+  if (!classification.source.device) {
+    return result('source_mismatch', 'This archive did not come from a mounted OP-Z. Connect and archive the original device slot.');
+  }
+  const findDevice = options.findDevice || findDeviceRoot;
+  const device = findDevice();
+  if (!device) return result('mount_unavailable', 'The mounted OP-Z is unavailable. Reconnect it in content mode, then refresh. The archive remains retained.');
+  if (device.label !== classification.source.label) {
+    return result('source_mismatch', 'The mounted OP-Z identity does not match this archive. Reconnect the original source. The archive remains retained.');
+  }
+  let captured;
+  try {
+    captured = (options.capture || captureSource)(classification.source.slot, {
+      ...device,
+      device: true,
+      path: path.join(device.root, 'projects'),
+    });
+  } catch {
+    return result('unclassified', 'The archived slot could not be read. Stop and reconnect the original OP-Z. The archive remains retained.');
+  }
+  if (captured.bytes !== classification.project.bytes || captured.sha256 !== classification.project.sha256) {
+    return result('unexpected_non_empty_replacement', 'The mounted slot no longer matches the archived song. Stop and inspect the device. The archive remains retained.');
+  }
+  try { (options.assertCaptured || assertCapturedSource)(captured); }
+  catch (error) {
+    return result(error.code === 'SOURCE_UNAVAILABLE' ? 'mount_unavailable' : 'unclassified',
+      'The mounted source changed or disconnected during inspection. Stop, reconnect the original OP-Z, and refresh. The archive remains retained.');
+  }
+  return result('archived_song_present',
+    'Archive and mounted slot match. Confirm the exact identity before following the on-device checklist.', true);
+}
+
 // ---------- op1.fun helpers ----------
 function fetchText(u, headers) {
   return new Promise((resolve, reject) => {
@@ -1004,15 +1056,32 @@ const server = http.createServer(async (req, res) => {
       const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
       const library = scanLibrary(meta, libraryRoot, autoRoot);
       const drafts = scanDrafts(libraryRoot);
+      const manualOptions = {
+        libraryRoot,
+        findDevice: testHooks.deviceRootResolver || findDeviceRoot,
+        capture: testHooks.manualCaptureSource || captureSource,
+        assertCaptured: testHooks.manualAssertCapturedSource || assertCapturedSource,
+      };
       return json(res, 200, {
         ...scanSlots(meta),
         library,
-        archiveShelf: archiveShelfData(library, drafts),
+        archiveShelf: archiveShelfData(library, drafts, (file, auto) => auto
+          ? { eligible: false, relation: 'archive_ineligible', guidance: 'Automatic recovery backups are retained but do not offer manual-free guidance.' }
+          : manualFreeInspection(file, manualOptions)),
         recordings: scanRecordings(),
         instruments: scanInstruments(),
         mutation: activeMutation,
         drafts,
       });
+    }
+    if (p === '/api/manual-free') {
+      if (req.method !== 'GET') throw requestError(405, 'READ_ONLY_ROUTE', 'Manual-free inspection is read-only.');
+      return json(res, 200, manualFreeInspection(url.searchParams.get('file'), {
+        libraryRoot: testHooks.libraryRoot || LIB_DIR,
+        findDevice: testHooks.deviceRootResolver || findDeviceRoot,
+        capture: testHooks.manualCaptureSource || captureSource,
+        assertCaptured: testHooks.manualAssertCapturedSource || assertCapturedSource,
+      }), { 'Cache-Control': 'no-store' });
     }
     if (p === '/api/pattern') {
       const slot = parseInt(url.searchParams.get('slot'), 10);
@@ -1239,6 +1308,7 @@ module.exports = {
   saveSettings,
   resolveChild,
   findBundle,
+  manualFreeInspection,
   classifyArchive,
   captureSource,
   assertCapturedSource,
