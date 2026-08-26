@@ -23,19 +23,19 @@ const META_FILE = path.join(DATA_DIR, 'meta.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const MUSIC_DIR = path.dirname(ROOT);
 const PORT = 8765;
+const SOURCE_TOKEN_SECRET = crypto.randomBytes(32);
 
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
 const META_TRACKS = ['kick', 'snare', 'hihat', 'sample', 'bass', 'lead', 'arp', 'chord'];
 const mutationRouteInventory = Object.freeze({
-  enabled: ['/api/backup'],
+  enabled: ['/api/backup', '/api/restore'],
   unavailable: [
-    '/api/restore', '/api/swap', '/api/clear-slot',
+    '/api/swap', '/api/clear-slot',
     '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import',
     '/api/instruments/snapshot', '/api/op1fun/download',
   ],
 });
 const unavailableMutationGuidance = Object.freeze({
-  '/api/restore': 'Restore returns in Phase 3 with verified target recovery and output checks.',
   '/api/swap': 'Slot swapping returns in Phase 3 with verified recovery capture.',
   '/api/clear-slot': 'Automatic clearing remains disabled until Phase 6 hardware validation.',
   '/api/instruments/move': 'Instrument changes return in Phase 3 with verified instrument recovery.',
@@ -125,8 +125,8 @@ function getSource() {
 }
 
 // ---------- slots ----------
-function scanSlots(meta) {
-  const src = getSource();
+function scanSlots(meta, sourceResolver = getSource) {
+  const src = sourceResolver();
   if (!src) return { source: null, slots: [] };
   const slots = [];
   for (let i = 1; i <= 10; i++) {
@@ -137,8 +137,10 @@ function scanSlots(meta) {
       const buf = fs.readFileSync(file);
       const hash = hashFile(buf);
       const parsed = parseProject(buf);
+      const captured = captureSource(i, src);
       slots.push({
         slot: i, file: `project${nn}.opz`, hash,
+        sha256: captured.sha256, bytes: captured.bytes, sourceToken: captured.sourceToken,
         modified: fs.statSync(file).mtime,
         tempo: parsed.tempo, swing: parsed.swing, mixer: parsed.mixer,
         chains: parsed.chains, usedPatterns: parsed.usedPatterns,
@@ -359,10 +361,10 @@ function classifyArchive(dir) {
       catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt', safe); }
     }
     const complete = info.samplepacks.captured && ['included', 'unlinked'].includes(info.snippet.status);
-    return {
+    const result = {
       verified: true,
       complete,
-      restoreEligible: false,
+      restoreEligible: true,
       manualFreeEligible: false,
       hash: hashFile(project),
       schemaVersion: info.schemaVersion,
@@ -379,7 +381,10 @@ function classifyArchive(dir) {
       snippet: info.snippet,
       samplepacks: info.samplepacks,
       hasInstruments: info.samplepacks.captured,
+      archiveRevision: sha256(Buffer.concat([fs.readFileSync(manifestPath), project])),
     };
+    Object.defineProperty(result, 'buffer', { value: project });
+    return result;
   } catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt'); }
 }
 function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
@@ -469,6 +474,7 @@ function archiveShelfData(library, drafts, inspectManualFree) {
       verified: true,
       complete: item.complete === true,
       restoreEligible: item.restoreEligible === true,
+      archiveRevision: item.archiveRevision,
       manualFreeEligible: manualFree ? manualFree.eligible === true : item.manualFreeEligible === true,
       manualFreeRelation: manualFree && manualFree.relation || null,
       manualFreeReason: manualFree && manualFree.guidance || 'Connect the original mounted OP-Z and refresh to check eligibility.',
@@ -607,6 +613,11 @@ function requestError(status, code, publicMessage, guidance = 'Correct the reque
 function transactionError(code, message, guidance, status) {
   return requestError(status || 500, code, message, guidance);
 }
+function recoveryReceipt(id, state) {
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9 _-]{1,120}$/.test(id)
+      || !['retained', 'rolled_back', 'recovery_required'].includes(state)) return null;
+  return { id, auto: true, state };
+}
 function sourceError(code, message) {
   return transactionError(code, message,
     'The captured source changed or disconnected. Reconnect the original source, refresh, and retry. No source data was changed.');
@@ -717,6 +728,22 @@ function validateBackup(body) {
   validateString(body.name, 'name', 120);
   return body;
 }
+function validateRestore(body) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['file', 'auto', 'archiveRevision', 'slot', 'targetFingerprint', 'sourceToken'])) {
+    throw requestError(400, 'INVALID_RESTORE_REQUEST', 'Restore request must contain one reviewed archive and target.');
+  }
+  validateBundleId(body.file);
+  validateBoolean(body.auto, 'auto');
+  validateString(body.archiveRevision, 'archiveRevision', 64, false);
+  validateString(body.sourceToken, 'sourceToken', 64, false);
+  if (!/^[a-f0-9]{64}$/i.test(body.archiveRevision) || !/^[a-f0-9]{64}$/i.test(body.sourceToken)
+      || !isPlainObject(body.targetFingerprint) || !hasExactKeys(body.targetFingerprint, ['sha256', 'bytes'])
+      || !/^[a-f0-9]{64}$/i.test(body.targetFingerprint.sha256) || !Number.isSafeInteger(body.targetFingerprint.bytes) || body.targetFingerprint.bytes < 1) {
+    throw requestError(400, 'INVALID_RESTORE_REQUEST', 'Restore target evidence is invalid.');
+  }
+  validateSlot(body.slot);
+  return body;
+}
 function publicSource(source) {
   const label = String(source.label || 'unknown source').replace(/\0/g, '').slice(0, 80) || 'unknown source';
   return { device: source.device === true, label, slot: source.slot };
@@ -743,22 +770,35 @@ function captureSource(slot, source) {
     root,
     rootDevice: String(rootStat.dev),
     rootInode: String(rootStat.ino),
+    projects,
     projectPath,
     buffer,
     sha256: sha256(buffer),
     bytes: buffer.length,
+    sourceToken: sourceToken(root, projects, rootStat),
   };
 }
-function assertCapturedSource(captured) {
+function sourceToken(root, projects, rootStat) {
+  return crypto.createHmac('sha256', SOURCE_TOKEN_SECRET)
+    .update(`${root}\0${projects}\0${rootStat.dev}\0${rootStat.ino}`).digest('hex');
+}
+function assertCapturedRoot(captured) {
   let root;
   try { root = fs.realpathSync(captured.root); }
   catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured source is no longer available.'); }
   let rootStat;
   try { rootStat = fs.statSync(root, { bigint: true }); }
   catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured source is no longer available.'); }
-  if (root !== captured.root || String(rootStat.dev) !== captured.rootDevice || String(rootStat.ino) !== captured.rootInode) {
+  let projects;
+  try { projects = fs.realpathSync(path.join(root, 'projects')); }
+  catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured projects are no longer available.'); }
+  if (root !== captured.root || projects !== captured.projects || String(rootStat.dev) !== captured.rootDevice
+      || String(rootStat.ino) !== captured.rootInode || sourceToken(root, projects, rootStat) !== captured.sourceToken) {
     throw sourceError('SOURCE_REPLACED', 'Captured source was replaced.');
   }
+}
+function assertCapturedSource(captured) {
+  assertCapturedRoot(captured);
   let current;
   try { current = fs.readFileSync(captured.projectPath); }
   catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured project is no longer available.'); }
@@ -945,10 +985,35 @@ function findBundle(file, auto, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
     const classification = classifyArchive(dir);
     if (!classification.verified) throw new Error('verification mismatch');
     const opz = path.join(dir, 'song.opz');
-    return { dir, opz, bundle: true, buffer: fs.readFileSync(opz), classification };
+    const buffer = fs.readFileSync(opz);
+    if (!classification.buffer.equals(buffer) || classification.project.bytes !== buffer.length
+        || classification.project.sha256 !== sha256(buffer)) throw new Error('archive changed');
+    return { dir, opz, bundle: true, buffer, archiveRevision: classification.archiveRevision, classification };
   } catch (error) {
     if (/^INVALID_/.test(error.code || '') || error.code === 'PATH_OUTSIDE_ROOT') throw error;
     throw requestError(409, 'BUNDLE_UNVERIFIED', 'Library bundle is not verified and cannot be restored.');
+  }
+}
+function writeVerifiedProject(captured, buffer, options = {}) {
+  assertCapturedRoot(captured);
+  const target = captured.projectPath;
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}-${crypto.randomBytes(6).toString('hex')}.tmp`);
+  try {
+    fs.writeFileSync(temp, buffer, { flag: 'wx', flush: true });
+    assertCapturedRoot(captured);
+    if (typeof options.beforeRename === 'function') options.beforeRename();
+    fs.renameSync(temp, target);
+    if (typeof options.afterRename === 'function') options.afterRename();
+    assertCapturedRoot(captured);
+    const reread = fs.readFileSync(target);
+    if (!reread.equals(buffer) || reread.length !== buffer.length || sha256(reread) !== sha256(buffer)) {
+      throw transactionError('RESTORE_READBACK_FAILED', 'Restored project bytes could not be verified.', 'The verified recovery archive remains retained.');
+    }
+    try { parseProject(reread); }
+    catch { throw transactionError('RESTORE_PARSE_FAILED', 'Restored project could not be parsed.', 'The verified recovery archive remains retained.'); }
+    return { sha256: sha256(reread), bytes: reread.length };
+  } finally {
+    try { fs.unlinkSync(temp); } catch {}
   }
 }
 
@@ -1146,6 +1211,76 @@ const server = http.createServer(async (req, res) => {
         });
       });
     }
+    if (p === '/api/restore' && req.method === 'POST') {
+      const body = validateRestore(await readBody(req));
+      return await withMutation(`restore slot ${body.slot}`, async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        const captured = (testHooks.captureSource || captureSource)(body.slot, source);
+        mutation.source = publicSource(captured);
+        const stale = () => captured.sha256 !== body.targetFingerprint.sha256 || captured.bytes !== body.targetFingerprint.bytes
+          || captured.sourceToken !== body.sourceToken;
+        if (stale()) throw transactionError('RESTORE_TARGET_STALE', 'The selected target changed after preview.',
+          `Slot ${String(body.slot).padStart(2, '0')} changed after preview. Refresh and review it again.`, 409);
+        let bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR,
+          Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
+        if (bundle.archiveRevision !== body.archiveRevision) throw transactionError('RESTORE_ARCHIVE_STALE', 'The reviewed archive changed.',
+          'Archive changed. Refresh before restoring.', 409);
+        assertCapturedSource(captured);
+        const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
+        fs.mkdirSync(autoRoot, { recursive: true });
+        const recovery = archiveCapturedProject(captured, {
+          libraryRoot: autoRoot,
+          name: `recovery-slot${body.slot}`,
+          deep: false,
+          operation: mutation.operation,
+        });
+        if (stale()) throw transactionError('RESTORE_TARGET_STALE', 'The selected target changed after preview.',
+          `Slot ${String(body.slot).padStart(2, '0')} changed after preview. Refresh and review it again.`, 409);
+        bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR,
+          Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
+        if (bundle.archiveRevision !== body.archiveRevision) throw transactionError('RESTORE_ARCHIVE_STALE', 'The reviewed archive changed.',
+          'Archive changed. Refresh before restoring.', 409);
+        let mutationStarted = false;
+        const receipt = recoveryReceipt(recovery.file, 'retained');
+        try {
+          const output = writeVerifiedProject(captured, bundle.buffer, {
+            beforeRename() { mutationStarted = true; if (testHooks.beforeRestoreRename) testHooks.beforeRestoreRename(); },
+            afterRename() { if (testHooks.afterRestoreRename) testHooks.afterRestoreRename(); },
+          });
+          const metaFile = testHooks.metaFile || META_FILE;
+          try {
+            const meta = loadMetaForUpdate(metaFile);
+            meta.songs[hashFile(bundle.buffer)] = { ...(meta.songs[hashFile(bundle.buffer)] || {}), ...bundle.classification.metadata };
+            saveMeta(meta, metaFile);
+          } catch {
+            const error = transactionError('RESTORE_METADATA_FAILED', 'Project bytes verified, but annotations were not saved.',
+              'Project bytes were restored and verified, but the restore did not fully complete. The verified recovery archive remains retained.', 500);
+            error.recovery = receipt;
+            throw error;
+          }
+          return json(res, 200, { ok: true, verified: true, slot: body.slot, source: publicSource(captured), evidence: output, recovery: receipt,
+            guidance: captured.device ? 'Written bytes were reread and verified on the mounted OP-Z in Content Mode.' : 'Written bytes were reread and verified in the local fixture.' });
+        } catch (error) {
+          if (!mutationStarted) throw error;
+          if (error.code === 'RESTORE_METADATA_FAILED') throw error;
+          let state = 'recovery_required';
+          try {
+            assertCapturedRoot(captured);
+            writeVerifiedProject(captured, captured.buffer);
+            state = 'rolled_back';
+          } catch {}
+          error.status = Number.isInteger(error.status) ? error.status : 500;
+          error.code = /^[A-Z][A-Z0-9_]+$/.test(error.code || '') ? error.code : 'RESTORE_FAILED';
+          error.message = 'Restore did not complete.';
+          error.guidance = state === 'rolled_back'
+            ? 'Original bytes were restored and verified. The verified recovery archive remains retained.'
+            : 'Recovery is required. Reconnect the original source and restore the retained recovery archive.';
+          error.recovery = recoveryReceipt(recovery.file, state);
+          throw error;
+        }
+      });
+    }
     // ---- instruments ----
     if (p === '/api/instruments/aifs') {
       // .aif files available for import (Music folder + instrument trash)
@@ -1276,7 +1411,8 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     const safe = Number.isInteger(e.status) && /^[A-Z][A-Z0-9_]+$/.test(e.code || '')
       ? { error: e.message, code: e.code, guidance: e.guidance,
-        ...(e.source ? { source: e.source } : {}), ...(e.active ? { active: e.active } : {}) }
+        ...(e.source ? { source: e.source } : {}), ...(e.active ? { active: e.active } : {}),
+        ...(e.recovery && recoveryReceipt(e.recovery.id, e.recovery.state) ? { recovery: recoveryReceipt(e.recovery.id, e.recovery.state) } : {}) }
       : { error: 'Operation failed safely.', code: 'OPERATION_FAILED', guidance: 'Refresh and retry. If the source disconnected, reconnect it first.' };
     return json(res, Number.isInteger(e.status) ? e.status : 500, safe);
   }
@@ -1306,6 +1442,7 @@ module.exports = {
   validateBundleId,
   parseByteRange,
   validateMetadataFields,
+  validateRestore,
   loadMeta,
   loadMetaForUpdate,
   loadSettingsForUpdate,
@@ -1316,7 +1453,9 @@ module.exports = {
   manualFreeInspection,
   classifyArchive,
   captureSource,
+  assertCapturedRoot,
   assertCapturedSource,
+  writeVerifiedProject,
   withMutation,
   archiveCapturedProject,
   scanLibrary,

@@ -1021,6 +1021,104 @@ test('mutation conflict rejects before resolver work and releases after success 
   assert.equal(await subject.withMutation('after failure', async () => 'released'), 'released');
 });
 
+test('project restore requires an explicit fresh target and retains a verified recovery archive', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const original = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  const incoming = Buffer.from(original);
+  incoming[0x10] ^= 1;
+  // The fixture header remains a valid project after this harmless pattern-byte change.
+  const archive = writeSchemaBundle(roots.libraryRoot, 'restore-project', schemaInfo(incoming, {
+    metadata: { name: 'Restored song', tags: '', notes: '', kit: {} },
+  }), incoming);
+  assert.equal(subject.classifyArchive(archive).verified, true);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const state = await requestJson(subject.server, '/api/state');
+  const shelf = state.body.archiveShelf.verified.find(item => item.id === 'restore-project');
+  const target = state.body.slots.find(item => item.slot === 1);
+  assert.equal(shelf.restoreEligible, true);
+  assert.match(shelf.archiveRevision, /^[a-f0-9]{64}$/);
+  assert.match(target.sourceToken, /^[a-f0-9]{64}$/);
+  const missing = await requestJson(subject.server, '/api/restore', { file: 'restore-project', auto: false });
+  assert.equal(missing.status, 400);
+  const result = await requestJson(subject.server, '/api/restore', {
+    file: 'restore-project', auto: false, archiveRevision: shelf.archiveRevision, slot: 1,
+    targetFingerprint: { sha256: target.sha256, bytes: target.bytes }, sourceToken: target.sourceToken,
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.recovery.auto, true);
+  assert.equal(result.body.recovery.state, 'retained');
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(incoming));
+  assert.ok(subject.classifyArchive(path.join(subject.testHooks.autoRoot, result.body.recovery.id)).verified);
+});
+
+test('project restore failure returns a sanitized retained recovery receipt', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const original = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  const archive = writeSchemaBundle(roots.libraryRoot, 'restore-failure', schemaInfo(original), original);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const state = await requestJson(subject.server, '/api/state');
+  const shelf = state.body.archiveShelf.verified.find(item => item.id === 'restore-failure');
+  const target = state.body.slots.find(item => item.slot === 1);
+  subject.testHooks.afterRestoreRename = () => { fs.renameSync(roots.sourceRoot, roots.sourceRoot + '-lost'); };
+  const result = await requestJson(subject.server, '/api/restore', {
+    file: 'restore-failure', auto: false, archiveRevision: shelf.archiveRevision, slot: 1,
+    targetFingerprint: { sha256: target.sha256, bytes: target.bytes }, sourceToken: target.sourceToken,
+  });
+  assert.equal(result.status, 500);
+  assert.equal(result.body.recovery.auto, true);
+  assert.equal(result.body.recovery.state, 'recovery_required');
+  assert.doesNotMatch(JSON.stringify(result.body), new RegExp(roots.sourceRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('project restore metadata failure stays non-success with verified output retained', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const original = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  const archive = writeSchemaBundle(roots.libraryRoot, 'restore-metadata', schemaInfo(original), original);
+  const metaFile = path.join(path.dirname(roots.libraryRoot), 'meta.json');
+  fs.writeFileSync(metaFile, JSON.stringify({ songs: {} }));
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  subject.testHooks.metaFile = metaFile;
+  subject.testHooks.beforeJsonRename = () => { throw new Error('metadata fail'); };
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const state = await requestJson(subject.server, '/api/state');
+  const shelf = state.body.archiveShelf.verified.find(item => item.id === 'restore-metadata');
+  const target = state.body.slots.find(item => item.slot === 1);
+  const result = await requestJson(subject.server, '/api/restore', {
+    file: 'restore-metadata', auto: false, archiveRevision: shelf.archiveRevision, slot: 1,
+    targetFingerprint: { sha256: target.sha256, bytes: target.bytes }, sourceToken: target.sourceToken,
+  });
+  assert.equal(result.status, 500);
+  assert.equal(result.body.code, 'RESTORE_METADATA_FAILED');
+  assert.equal(result.body.recovery.state, 'retained');
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(original));
+});
+
 test('guard before capture rejects an HTTP competitor with zero source work', async t => {
   const roots = tempRoots(t);
   useFixtureSource(t, roots.sourceRoot);
@@ -1083,7 +1181,6 @@ test('published archive stays successful when its name annotation cannot be save
 
 test('later-phase routes unavailable before filesystem mutation', async t => {
   const unavailable = [
-    '/api/restore',
     '/api/swap',
     '/api/clear-slot',
     '/api/instruments/move',
@@ -1092,7 +1189,7 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
     '/api/instruments/snapshot',
     '/api/op1fun/download',
   ];
-  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup'], unavailable });
+  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore'], unavailable });
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
   for (const route of unavailable) {
@@ -1103,7 +1200,7 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
   }
 
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
-  assert.doesNotMatch(html, /onclick="restore\(/);
+  assert.match(html, /onclick="restoreProject\(/);
   assert.match(html, /disabled[^>]+Phase 3[^>]+>swap</);
   assert.match(html, /disabled[^>]+Phase 3[^>]+>remove/);
   assert.match(html, /disabled[^>]+Phase 3[^>]+>import/);
@@ -1382,8 +1479,9 @@ test('archive refresh removes a cached manual-free checklist when current eligib
   const root = { innerHTML: '', setAttribute() {} };
   const manualFreeState = new Map([['archive-one', { eligible: true, stage: 'checklist' }]]);
   const context = vm.createContext({
-    STATE: { archiveShelf: { verified: [item], diagnostics: [], verifiedCount: 1, diagnosticCount: 0 } },
+    STATE: { source: { device: false, label: 'fixture' }, slots: [], archiveShelf: { verified: [item], diagnostics: [], verifiedCount: 1, diagnosticCount: 0 } },
     SETTINGS: {}, shelfLoading: false, shelfError: '', manualFreeState,
+    restoreState: new Map(),
     TYPES: ['1-kick','2-snare','3-perc','4-fx','5-bass','6-lead','7-arpeggio','8-chord'],
     TYPE_LABELS: { '1-kick':'kick','2-snare':'snare','3-perc':'perc','4-fx':'fx','5-bass':'bass','6-lead':'lead','7-arpeggio':'arp','8-chord':'chord' },
     document: {
