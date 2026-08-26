@@ -1195,6 +1195,106 @@ test('archive success always captures complete grid then opens and focuses shelf
   assert.match(body, /\.focus\(\)/);
 });
 
+test('manual free is device-only, request-local, exact-match, and fail-closed', async t => {
+  const roots = tempRoots(t);
+  const source = { ...roots.source, device: true, label: 'fixture OP-Z' };
+  const archived = subject.archiveCapturedProject(subject.captureSource(1, source), {
+    libraryRoot: roots.libraryRoot,
+    name: 'Exact song',
+    deep: true,
+    metadata: { name: 'Exact song' },
+  });
+  let fallbackCalls = 0;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = null;
+  subject.testHooks.deviceRootResolver = () => ({ root: roots.sourceRoot, device: true, label: source.label });
+  subject.testHooks.sourceResolver = () => { fallbackCalls++; return roots.source; };
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+
+  const archiveBefore = fs.readFileSync(path.join(roots.libraryRoot, archived.file, 'song.opz'));
+  const sourceBefore = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  const exact = await request(subject.server, '/api/manual-free?file=' + encodeURIComponent(archived.file));
+  assert.equal(exact.status, 200);
+  assert.deepEqual(exact.body, {
+    eligible: true,
+    relation: 'archived_song_present',
+    archive: { id: archived.file, name: 'Exact song', slot: 1, source: 'fixture OP-Z' },
+    guidance: 'Archive and mounted slot match. Confirm the exact identity before following the on-device checklist.',
+  });
+  assert.equal(fallbackCalls, 0);
+  assert.ok(fs.readFileSync(path.join(roots.libraryRoot, archived.file, 'song.opz')).equals(archiveBefore));
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(sourceBefore));
+
+  const changed = Buffer.from(sourceBefore);
+  changed[0] ^= 1;
+  fs.writeFileSync(path.join(roots.source.path, 'project01.opz'), changed);
+  const mismatch = await request(subject.server, '/api/manual-free?file=' + encodeURIComponent(archived.file));
+  assert.equal(mismatch.status, 200);
+  assert.equal(mismatch.body.eligible, false);
+  assert.equal(mismatch.body.relation, 'unexpected_non_empty_replacement');
+
+  fs.unlinkSync(path.join(roots.source.path, 'project01.opz'));
+  const absent = await request(subject.server, '/api/manual-free?file=' + encodeURIComponent(archived.file));
+  assert.equal(absent.status, 200);
+  assert.equal(absent.body.eligible, false);
+  assert.equal(absent.body.relation, 'unclassified');
+  assert.doesNotMatch(JSON.stringify(absent.body), /empty|confirmed/i);
+
+  subject.testHooks.deviceRootResolver = () => null;
+  const unavailable = await request(subject.server, '/api/manual-free?file=' + encodeURIComponent(archived.file));
+  assert.equal(unavailable.status, 200);
+  assert.equal(unavailable.body.relation, 'mount_unavailable');
+  assert.equal(fallbackCalls, 0);
+});
+
+test('manual free rejects hostile and incomplete archive selectors without an action', async t => {
+  const roots = tempRoots(t);
+  const fixture = fs.readFileSync(FIXTURE);
+  writeSchemaBundle(roots.libraryRoot, 'project-only', schemaInfo(fixture, {
+    source: { device: true, label: 'fixture OP-Z', slot: 1 },
+  }), fixture);
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = null;
+  subject.testHooks.deviceRootResolver = () => ({ root: roots.sourceRoot, device: true, label: 'fixture OP-Z' });
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+
+  const hostile = await request(subject.server, '/api/manual-free?file=..%2Fsettings.json');
+  assert.equal(hostile.status, 400);
+  assert.equal(hostile.body.code, 'INVALID_BUNDLE_ID');
+  const incomplete = await request(subject.server, '/api/manual-free?file=project-only');
+  assert.equal(incomplete.status, 200);
+  assert.equal(incomplete.body.eligible, false);
+  assert.equal(incomplete.body.relation, 'archive_incomplete');
+});
+
+test('manual checklist is exact-identity gated, local-only, and never clears the device', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const shelf = /function renderArchives\(\) \{([\s\S]*?)\n\}\n/.exec(html)[1];
+  assert.match(shelf, /prepare manual freeing/);
+  assert.match(html, /async function prepareManualFree\(/);
+  assert.match(html, /\/api\/manual-free\?file=/);
+  assert.match(html, /checking…/);
+  assert.match(html, /aria-busy/);
+  assert.match(html, /Safely eject/);
+  assert.match(html, /Eject the OP-Z disk in Finder, or press play while it is in content\/boot mode/);
+  assert.match(html, /hold project and press value key/);
+  assert.match(html, /project \+ stop \+ shift/);
+  assert.match(html, /Hold track while turning it on/);
+  assert.match(html, /slot === 10 \? 0 : slot/);
+  assert.match(html, /refresh and verify slot/);
+  assert.match(html, /type="checkbox"/);
+  assert.doesNotMatch(html.match(/async function prepareManualFree\([\s\S]*?\n\}/)[0], /clear-slot|POST|runMutation/);
+  assert.doesNotMatch(html.match(/async function refreshManualFree\([\s\S]*?\n\}/)[0], /clear-slot|POST|runMutation/);
+});
+
 test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, async t => {
   const mountedRoot = '/Volumes/OP-Z';
   const sourcePath = path.join(mountedRoot, 'projects', 'project01.opz');
