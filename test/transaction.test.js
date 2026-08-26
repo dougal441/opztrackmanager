@@ -1208,10 +1208,17 @@ test('archive escaping overflow and reduced motion contracts are explicit', () =
   assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(html, /html \{ scroll-behavior: auto/);
   const body = /function renderArchives\(\) \{([\s\S]*?)\n\}\n/.exec(html)[1];
-  assert.match(body, /esc\(item\.metadata\.name/);
+  assert.match(body, /const nameMarkup = esc\(songName\)/);
   assert.match(body, /attr\(item\.created/);
   assert.match(body, /esc\(file\.path/);
   assert.match(body, /esc\(file\.sha256/);
+  assert.match(html, /--dim: #747169/);
+  assert.match(html, /--accent-text: #c93400/);
+  assert.match(html, /\.badge\.verified \{ color: var\(--accent-text\)/);
+  assert.match(html, /\.manualPrepare \{ background: var\(--accent\)/);
+  assert.match(html, /\.manualWarning \{ border-left: 4px solid var\(--ink\)/);
+  assert.match(html, /\.archiveIntro h2 \{ font: 600 15px\/1\.3/);
+  assert.match(html, /\.archiveName \{ font: 600 15px\/1\.3/);
 });
 
 test('diagnostic actions stay absent from archive shelf diagnostics', () => {
@@ -1348,7 +1355,7 @@ test('archive refresh removes a cached manual-free checklist when current eligib
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   const item = {
     id: 'archive-one', schemaVersion: 1, created: '2026-08-25T12:00:00.000Z', complete: true,
-    metadata: { name: 'Song', tags: '', notes: '' },
+    metadata: { name: 'Song <live>', tags: '', notes: '' },
     source: { device: true, label: 'OP-Z', slot: 10 },
     project: { path: 'song.opz', sha256: 'a'.repeat(64), bytes: 1, checked: '2026-08-25T12:00:00.000Z' },
     snippet: { status: 'unlinked' }, patterns: [], chains: [], usedPatterns: [],
@@ -1388,8 +1395,21 @@ test('archive refresh removes a cached manual-free checklist when current eligib
 
   context.renderArchives();
   assert.match(root.innerHTML, /Manual freeing checklist/);
+  assert.match(root.innerHTML, /You are about to clear slot 10 on the OP–Z itself/);
+  assert.match(root.innerHTML, /I confirmed slot 10 is “Song &lt;live&gt;” on this OP–Z/);
   assert.match(root.innerHTML, /value key 0 to select slot 10/);
   assert.match(root.innerHTML, /project \+ stop \+ shift/);
+  for (const [relation, copy] of [
+    ['archived_song_present', /Slot 10 still contains “Song &lt;live&gt;”/],
+    ['unexpected_non_empty_replacement', /Slot 10 for “Song &lt;live&gt;” changed but is not empty/],
+    ['mount_unavailable', /confirmation of slot 10 \(“Song &lt;live&gt;”\)/],
+    ['unclassified', /Slot 10 could not be classified for “Song &lt;live&gt;”/],
+  ]) {
+    manualFreeState.set('archive-one', { eligible: relation === 'archived_song_present', relation, stage: 'result', guidance: 'generic' });
+    context.renderArchives();
+    assert.match(root.innerHTML, copy);
+    assert.doesNotMatch(root.innerHTML, /<live>/);
+  }
   await context.load();
   assert.equal(manualFreeState.size, 0);
   assert.doesNotMatch(root.innerHTML, /Manual freeing checklist|project \+ stop \+ shift|data-manual-control/);

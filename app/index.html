@@ -8,9 +8,9 @@
 <style>
   :root {
     --bg: #efeeea; --surface: #f7f6f3; --sunken: #e6e4de;
-    --ink: #1b1b19; --dim: #8b8880; --faint: #b8b5ac;
+    --ink: #1b1b19; --dim: #747169; --faint: #b8b5ac;
     --line: #dcdad3; --line2: #cfccc4;
-    --accent: #ff4b00;
+    --accent: #ff4b00; --accent-text: #c93400;
     --t-kick: #5a9a6e; --t-snare: #c25b52; --t-hihat: #c2a23c; --t-sample: #cf7a3d;
     --t-bass: #5f83ad; --t-lead: #8a76ad; --t-arp: #57a099; --t-chord: #b76e93;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
@@ -36,7 +36,7 @@
          padding: 8px 16px; border-radius: 4px; cursor: pointer; color: var(--dim);
          transition: color .18s, background .18s; border: none; background: none; }
   .tab:hover { color: var(--ink); }
-  .tab.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(60,55,40,.12); }
+  .tab.active { background: var(--surface); color: var(--ink); box-shadow: inset 0 -2px var(--accent), 0 1px 2px rgba(60,55,40,.12); }
   #source { margin-left: auto; font: 11px/1.4 var(--mono); color: var(--dim); text-align: right; }
   #source .st { display: inline-flex; align-items: center; gap: 6px; }
   #source .st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
@@ -138,46 +138,50 @@
   .libRow select { flex: 1; font-size: 11px; padding: 4px 6px; }
   .empty { font: 12px/1.6 var(--sans); color: var(--dim); padding: 8px 0; }
   /* ---------- archive shelf ---------- */
-  #view-archives { margin-top: 26px; }
-  .archiveIntro { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 18px; }
-  .archiveIntro h2 { font: 650 24px/1.2 var(--sans); letter-spacing: -.02em; }
+  #view-archives { margin-top: 24px; }
+  .archiveIntro { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 16px; }
+  .archiveIntro h2 { font: 600 15px/1.3 var(--sans); }
   .archiveIntro p { color: var(--dim); margin-top: 4px; }
-  .archiveCount { font: 500 11px var(--mono); color: var(--dim); white-space: nowrap; }
-  .archiveRow, .diagnosticRow { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin-bottom: 10px; overflow: clip; }
+  .archiveCount { font: 600 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+  .archiveRow, .diagnosticRow { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin-bottom: 8px; overflow: clip; }
   .archiveSummary { list-style: none; min-height: 88px; padding: 16px; cursor: pointer; display: grid;
-                    grid-template-columns: minmax(0, 1fr) 136px minmax(210px, auto) auto; gap: 18px; align-items: center; }
+                    grid-template-columns: minmax(0, 1fr) 136px minmax(210px, auto) auto; gap: 16px; align-items: center; }
+  .archiveSummary:hover, details[open] > .archiveSummary { box-shadow: inset 2px 0 var(--accent); }
   .archiveSummary::-webkit-details-marker, .diagnosticSummary::-webkit-details-marker { display: none; }
   .archiveName, .archiveTags, .archiveFacts, .evidenceValue, .diagnosticSummary { overflow-wrap: anywhere; }
-  .archiveName { font: 650 16px/1.3 var(--sans); }
-  .archiveTags { color: var(--dim); margin-top: 3px; }
-  .archiveFacts { font: 10px/1.7 var(--mono); color: var(--dim); }
-  .badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
-  .badge { font: 500 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em;
-           border: 1px solid var(--line2); border-radius: 2px; padding: 3px 6px; }
-  .badge.verified { color: var(--accent); border-color: currentColor; }
-  .chevron { font: 500 10px var(--mono); color: var(--dim); white-space: nowrap; }
+  .archiveName { font: 600 15px/1.3 var(--sans); }
+  .archiveTags { font: 400 14px/1.5 var(--sans); color: var(--dim); margin-top: 4px; }
+  .archiveFacts { font: 600 10px/1.4 var(--mono); color: var(--dim); }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .badge { font: 600 10px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em;
+           border: 1px solid var(--line2); border-radius: 2px; padding: 4px 8px; }
+  .badge.verified { color: var(--accent-text); border-color: currentColor; }
+  .chevron { font: 600 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
   .chevron::after { content: ' ▾'; }
   details[open] > summary .chevron::after { content: ' ▴'; }
   .archiveExpanded { border-top: 1px solid var(--line); padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; animation: slideIn .22s ease; }
-  .evidenceGroup h3 { font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 10px; }
-  .evidenceGroup p, .evidenceGroup li { margin: 5px 0; color: var(--dim); }
-  .evidenceGroup b { color: var(--ink); font-weight: 500; }
+  .evidenceGroup h3 { font: 600 10px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px; }
+  .evidenceGroup p, .evidenceGroup li { font: 400 14px/1.5 var(--sans); margin: 4px 0; color: var(--dim); }
+  .evidenceGroup b { color: var(--ink); font-weight: 600; }
   .evidenceValue code { font-family: var(--mono); overflow-wrap: anywhere; }
-  .evidenceScroll { max-width: 100%; overflow-x: auto; margin-top: 10px; }
-  .evidenceTable { border-collapse: collapse; min-width: 680px; width: 100%; font: 10px/1.5 var(--mono); }
-  .evidenceTable th, .evidenceTable td { border-bottom: 1px solid var(--line); padding: 6px; text-align: left; overflow-wrap: anywhere; }
+  .evidenceScroll { max-width: 100%; overflow-x: auto; margin-top: 8px; }
+  .evidenceTable { border-collapse: collapse; min-width: 680px; width: 100%; font: 400 10px/1.4 var(--mono); }
+  .evidenceTable th, .evidenceTable td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; overflow-wrap: anywhere; }
   .archiveDiagnostics { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line2); }
-  .archiveDiagnostics h2 { font: 650 18px/1.2 var(--sans); margin-bottom: 12px; }
-  .diagnosticSummary { list-style: none; min-height: 44px; padding: 14px 16px; cursor: pointer; }
-  .diagnosticMeta { font: 10px/1.6 var(--mono); color: var(--dim); margin-top: 4px; }
-  .archiveError { border: 1px solid var(--ink); padding: 14px; margin-bottom: 16px; background: var(--surface); }
-  .archiveError .btn { margin-top: 10px; min-height: 44px; }
-  .manualFree { grid-column: 1 / -1; border-top: 1px solid var(--line2); padding-top: 18px; }
-  .manualFree h3, .manualResult { outline: none; }
-  .manualFree ol { margin: 14px 0 0 22px; }
-  .manualFree li { margin: 12px 0; }
-  .manualFree label { display: flex; gap: 10px; align-items: start; min-height: 44px; }
-  .manualFree input { margin-top: 3px; }
+  .archiveDiagnostics h2 { font: 600 15px/1.3 var(--sans); margin-bottom: 16px; }
+  .diagnosticSummary { list-style: none; min-height: 44px; padding: 16px; cursor: pointer; font: 400 14px/1.5 var(--sans); }
+  .diagnosticMeta { font: 600 10px/1.4 var(--mono); color: var(--dim); margin-top: 4px; }
+  .archiveError { border: 1px solid var(--ink); padding: 16px; margin-bottom: 16px; background: var(--surface); font: 400 14px/1.5 var(--sans); }
+  .archiveError .btn { margin-top: 8px; min-height: 44px; }
+  .manualFree { grid-column: 1 / -1; border: 1px solid var(--ink); border-radius: 8px; background: var(--sunken); padding: 16px; font: 400 14px/1.5 var(--sans); }
+  .manualFree h3 { font: 600 15px/1.3 var(--sans); margin-bottom: 8px; outline: none; }
+  .manualWarning { border-left: 4px solid var(--ink); background: var(--surface); padding: 8px 12px; margin: 8px 0 16px; }
+  .manualResult { font: 400 14px/1.5 var(--sans); outline: none; }
+  .manualPrepare { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+  .manualFree ol { margin: 16px 0 0 24px; }
+  .manualFree li { margin: 16px 0; }
+  .manualFree label { display: flex; gap: 8px; align-items: start; min-height: 44px; }
+  .manualFree input { margin-top: 4px; }
   @media (max-width: 900px) {
     .archiveSummary { grid-template-columns: 1fr; }
     .archiveExpanded { grid-template-columns: 1fr; }
@@ -618,7 +622,8 @@ function renderArchives() {
   const errorMarkup = shelfError ? '<div class="archiveError" role="alert">' + esc(shelfError) +
     '<br><button class="btn" onclick="load()">refresh</button></div>' : '';
   const verifiedMarkup = shelf.verified.length ? shelf.verified.map(item => {
-    const nameMarkup = esc(item.metadata.name || 'untitled');
+    const songName = item.metadata.name || 'untitled';
+    const nameMarkup = esc(songName);
     const tagsMarkup = item.metadata.tags ? esc(item.metadata.tags) : 'Not recorded';
     const sourceKind = item.source.device ? 'mounted OP-Z' : 'local fixture';
     const snippetLabel = item.snippet.status === 'included' ? 'snippet included'
@@ -643,29 +648,32 @@ function renderArchives() {
     const fileArg = attr(JSON.stringify(item.id));
     const manual = manualFreeState.get(item.id);
     const slot = item.source.slot;
+    const paddedSlot = String(slot).padStart(2, '0');
     const valueKey = slot === 10 ? 0 : slot;
-    const identity = 'archive ' + item.id + ' · “' + (item.metadata.name || 'untitled') + '” · slot ' + String(slot).padStart(2, '0') + ' · ' + item.source.label;
+    const identity = 'archive ' + item.id + ' · “' + songName + '” · slot ' + paddedSlot + ' · ' + item.source.label;
+    const resultCopy = manual && manual.relation === 'archived_song_present'
+      ? 'Slot ' + paddedSlot + ' still contains “' + songName + '”. Nothing was removed by OP-Z Manager. Repeat the on-device clear steps when ready.'
+      : manual && manual.relation === 'unexpected_non_empty_replacement'
+        ? 'Slot ' + paddedSlot + ' for “' + songName + '” changed but is not empty. Stop here. The archive remains retained; review the device before doing anything else.'
+        : manual && manual.relation === 'mount_unavailable'
+          ? 'The OP-Z is not available for confirmation of slot ' + paddedSlot + ' (“' + songName + '”). Reconnect it in content mode, then refresh and verify slot ' + paddedSlot + '.'
+          : 'Slot ' + paddedSlot + ' could not be classified for “' + songName + '”. Do not assume it is empty. The archive remains retained.';
     const stop = manual && !manual.eligible
-      ? '<div class="manualResult" role="alert" tabindex="-1" ' + (manual.stage === 'result' ? 'data-manual-result' : 'data-manual-focus') + '="' + attr(item.id) + '">' + esc(manual.guidance) + '</div>' : '';
-    const result = manual && manual.stage === 'result'
-      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-result="' + attr(item.id) + '">' + esc(manual.relation === 'archived_song_present'
-        ? 'Archived song still present. Stop; do not repeat the clear gesture. The archive remains retained.'
-        : manual.relation === 'unexpected_non_empty_replacement'
-          ? 'Unexpected non-empty replacement. Stop and inspect the device. The archive remains retained.'
-          : manual.relation === 'mount_unavailable'
-            ? 'Mount unavailable. Reconnect in content mode and retry. The archive remains retained.'
-            : 'Slot state is unclassified. Do not assume it is empty. The archive remains retained.') + '</div>' : '';
+      ? '<div class="manualResult" role="alert" tabindex="-1" ' + (manual.stage === 'result' ? 'data-manual-result' : 'data-manual-focus') + '="' + attr(item.id) + '">' + esc(manual.stage === 'result' ? resultCopy : manual.guidance) + '</div>' : '';
+    const result = manual && manual.stage === 'result' && manual.eligible
+      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-result="' + attr(item.id) + '">' + esc(resultCopy) + '</div>' : '';
     const checklist = item.manualFreeEligible && manual && manual.eligible
       ? '<section class="manualFree" aria-label="Manual freeing checklist"><h3 tabindex="-1" data-manual-focus="' + attr(item.id) + '">Manual freeing checklist</h3>' +
+        '<p class="manualWarning"><b>You are about to clear slot ' + esc(paddedSlot) + ' on the OP–Z itself.</b> OP-Z Manager will not delete or change device files.</p>' +
         '<p><b>Exact identity:</b> ' + esc(identity) + '</p>' +
-        '<label><input type="checkbox" onchange="acknowledgeManualFree(' + fileArg + ',this.checked)"> I confirm this exact archive, song, source, and slot.</label>' +
+        '<label><input type="checkbox" onchange="acknowledgeManualFree(' + fileArg + ',this.checked)"> I confirmed slot ' + esc(paddedSlot) + ' is “' + nameMarkup + '” on this OP–Z.</label>' +
         '<ol><li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Safely eject.</b> Eject the OP-Z disk in Finder, or press play while it is in content/boot mode. Wait for the disk to disappear and the OP-Z to finish syncing/restarting before unplugging USB or powering off.</span></label></li>' +
-        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Select the archived project.</b> Disconnect USB if needed. On the OP-Z, hold project and press value key ' + esc(valueKey) + ' to select slot ' + esc(String(slot).padStart(2, '0')) + '. Confirm the song before continuing.</span></label></li>' +
+        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Select the archived project.</b> Disconnect USB if needed. On the OP-Z, hold project and press value key ' + esc(valueKey) + ' to select slot ' + esc(paddedSlot) + '. Confirm the song before continuing.</span></label></li>' +
         '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Clear the project on the device.</b> Hold project + stop + shift to clear the entire selected project.</span></label></li>' +
         '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Reconnect in content mode.</b> Power the OP-Z off. Hold track while turning it on, connect USB, and wait for the OP-Z disk to mount.</span></label></li>' +
         '<li><button class="btn" disabled data-manual-control="' + attr(item.id) + '" onclick="refreshManualFree(' + fileArg + ')">refresh and verify slot</button></li></ol>' + result + '</section>' : stop;
     const manualAction = item.manualFreeEligible
-      ? '<p><b>Manual-free eligibility:</b> current exact match</p><button class="btn acc" onclick="prepareManualFree(' + fileArg + ',this)">prepare manual freeing</button>'
+      ? '<p><b>Manual-free eligibility:</b> current exact match</p><button class="btn manualPrepare" onclick="prepareManualFree(' + fileArg + ',this)">prepare manual freeing</button>'
       : '<p><b>Manual-free eligibility:</b> unavailable</p><p>' + esc(item.manualFreeReason) + '</p>';
     return '<details class="archiveRow"><summary class="archiveSummary" data-archive-id="' + attr(item.id) + '">' +
       '<div><div class="archiveName">' + nameMarkup + '</div><div class="archiveTags">' + tagsMarkup + '</div></div>' +

@@ -97,10 +97,10 @@ All button labels remain lowercase to match the existing interface.
 | Checklist warning | `You are about to clear slot {NN} on the OP–Z itself. OP-Z Manager will not delete or change device files.` | Phase boundary |
 | Identity acknowledgement | `I confirmed slot {NN} is “{song name}” on this OP–Z.` | Safety default |
 | Final check CTA | `refresh and verify slot` | Recommended default |
-| Clear confirmed | `Slot {NN} is free. “{song name}” remains verified in Archive Shelf.` | Recommended default |
+| Clear confirmed | Deferred until Phase 6 real-device acceptance defines a reliable empty-slot representation. Phase 2 must remain unclassified and fail closed. | Phase boundary |
 | Still present | `Slot {NN} still contains “{song name}”. Nothing was removed by OP-Z Manager. Repeat the on-device clear steps when ready.` | Safety default |
-| Unexpected replacement | `Slot {NN} changed but is not empty. Stop here. The archive remains retained; review the device before doing anything else.` | Safety default |
-| Mount missing | `The OP-Z is not available for confirmation. Reconnect it in content mode, then refresh and verify slot {NN}.` | SAFE-03/SAFE-04 |
+| Unexpected replacement | `Slot {NN} for “{song name}” changed but is not empty. Stop here. The archive remains retained; review the device before doing anything else.` | Safety default |
+| Mount missing | `The OP-Z is not available for confirmation of slot {NN} (“{song name}”). Reconnect it in content mode, then refresh and verify slot {NN}.` | SAFE-03/SAFE-04 |
 | Destructive confirmation | No app-side destructive confirmation. The physical action is gated by a fresh preflight and the exact-slot identity checkbox above. | Phase boundary |
 
 Do not show raw internal errors, mounted absolute paths, or credentials. Diagnostic copy may show a stable public error code, supported manifest version, archive-relative path, source kind/label, and slot.
@@ -191,7 +191,7 @@ The ordered checklist is:
 4. **Reconnect in content mode.** `Power the OP-Z off. Hold track while turning it on, connect USB, and wait for the OP-Z disk to mount.`
 5. **Confirm.** Activate `refresh and verify slot`.
 
-Steps 1–4 are instructions and checkboxes only. Checking them never calls a mutation endpoint. Step 5 performs a fresh read and reports exactly one of: confirmed empty, archived song still present, unexpected non-empty replacement, or mount unavailable. Keep the verified archive in every outcome.
+Steps 1–4 are instructions and checkboxes only. Checking them never calls a mutation endpoint. Step 5 performs a fresh read and reports exactly one of: archived song still present, unexpected non-empty replacement, mount unavailable, or unclassified. Phase 2 never reports confirmed empty; that classification remains deferred until Phase 6 real-device acceptance. Keep the verified archive in every outcome.
 
 Official interaction basis, researched 2026-08-26:
 
