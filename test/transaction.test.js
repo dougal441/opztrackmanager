@@ -193,6 +193,21 @@ test('archive classification keeps manifest verification completeness and unicod
   assert.equal(subject.findBundle('project-only', false, libraryRoot, null).buffer.equals(fixture), true);
 });
 
+test('library scan excludes only app support roots from archive diagnostics', t => {
+  const { libraryRoot } = tempRoots(t);
+  const fixture = fs.readFileSync(FIXTURE);
+  const autoRoot = path.join(libraryRoot, 'auto-backups');
+  fs.mkdirSync(autoRoot);
+  fs.mkdirSync(path.join(libraryRoot, 'instrument-trash'));
+  fs.mkdirSync(path.join(libraryRoot, 'genuine-partial'));
+  writeSchemaBundle(libraryRoot, 'valid-archive', schemaInfo(fixture), fixture);
+
+  const items = subject.scanLibrary({ songs: {} }, libraryRoot, autoRoot);
+  assert.deepEqual(items.map(item => item.file).sort(), ['genuine-partial', 'valid-archive']);
+  assert.equal(items.find(item => item.file === 'valid-archive').verified, true);
+  assert.deepEqual(items.filter(item => !item.verified).map(item => item.file), ['genuine-partial']);
+});
+
 test('shelf data keeps archive counts evidence and newest first diagnostics separate', t => {
   const { libraryRoot } = tempRoots(t);
   const fixture = fs.readFileSync(FIXTURE);

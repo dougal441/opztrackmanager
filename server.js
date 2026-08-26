@@ -384,10 +384,15 @@ function classifyArchive(dir) {
 }
 function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   const items = [];
+  const reserved = new Set([
+    autoRoot && path.resolve(autoRoot),
+    path.resolve(libraryRoot, path.basename(TRASH_DIR)),
+  ].filter(Boolean));
   const scanDir = (dir, auto) => {
     for (const f of fs.readdirSync(dir)) {
       if (f.startsWith('.')) continue;
       const full = path.join(dir, f);
+      if (!auto && reserved.has(path.resolve(full))) continue;
       let bundle = null;
       let modified = null;
       try {
