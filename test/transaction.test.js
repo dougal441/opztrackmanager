@@ -1343,6 +1343,49 @@ test('manual checklist is exact-identity gated, local-only, and never clears the
   assert.doesNotMatch(html.match(/async function refreshManualFree\([\s\S]*?\n\}/)[0], /clear-slot|POST|runMutation/);
 });
 
+test('archive refresh removes a cached manual-free checklist when current eligibility changes', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const item = {
+    id: 'archive-one', schemaVersion: 1, created: '2026-08-25T12:00:00.000Z', complete: true,
+    metadata: { name: 'Song', tags: '', notes: '' },
+    source: { device: true, label: 'OP-Z', slot: 1 },
+    project: { path: 'song.opz', sha256: 'a'.repeat(64), bytes: 1, checked: '2026-08-25T12:00:00.000Z' },
+    snippet: { status: 'unlinked' }, patterns: [], chains: [], usedPatterns: [],
+    samplepacks: {
+      captured: true, files: [],
+      summary: {
+        fileCount: 0, totalBytes: 0,
+        perTrack: Object.fromEntries(['1-kick','2-snare','3-perc','4-fx','5-bass','6-lead','7-arpeggio','8-chord']
+          .map(type => [type, { files: 0, bytes: 0 }])),
+      },
+    },
+    manualFreeEligible: true, manualFreeReason: '',
+  };
+  const refreshed = { archiveShelf: { verified: [{ ...item, manualFreeEligible: false }], diagnostics: [], verifiedCount: 1, diagnosticCount: 0 } };
+  const root = { innerHTML: '', setAttribute() {} };
+  const manualFreeState = new Map([['archive-one', { eligible: true, stage: 'checklist' }]]);
+  const context = vm.createContext({
+    STATE: { archiveShelf: { verified: [item], diagnostics: [], verifiedCount: 1, diagnosticCount: 0 } },
+    SETTINGS: {}, shelfLoading: false, shelfError: '', manualFreeState,
+    TYPES: ['1-kick','2-snare','3-perc','4-fx','5-bass','6-lead','7-arpeggio','8-chord'],
+    TYPE_LABELS: { '1-kick':'kick','2-snare':'snare','3-perc':'perc','4-fx':'fx','5-bass':'bass','6-lead':'lead','7-arpeggio':'arp','8-chord':'chord' },
+    document: { getElementById: id => id === 'archives' ? root : null },
+    esc: value => String(value ?? ''), attr: value => String(value ?? ''), matrixSvg: () => '',
+    countLabel: (count, singular) => count + ' ' + singular + (count === 1 ? '' : 's'),
+    api: async pathname => pathname === '/api/state' ? refreshed : {},
+  });
+  vm.runInContext(html.match(/function renderArchives\([\s\S]*?\n\}\n(?=async function prepareManualFree)/)[0], context);
+  vm.runInContext(html.match(/async function load\([\s\S]*?\n\}\n(?=function setTab)/)[0], context);
+  context.render = () => context.renderArchives();
+
+  context.renderArchives();
+  assert.match(root.innerHTML, /Manual freeing checklist/);
+  assert.match(root.innerHTML, /project \+ stop \+ shift/);
+  await context.load();
+  assert.equal(manualFreeState.size, 0);
+  assert.doesNotMatch(root.innerHTML, /Manual freeing checklist|project \+ stop \+ shift|data-manual-control/);
+});
+
 test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, async t => {
   const mountedRoot = '/Volumes/OP-Z';
   const sourcePath = path.join(mountedRoot, 'projects', 'project01.opz');

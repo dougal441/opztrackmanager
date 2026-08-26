@@ -364,6 +364,7 @@ function sourceGuidance(source, outcome) {
 }
 
 async function load() {
+  manualFreeState.clear();
   shelfLoading = true;
   renderArchives();
   try {
@@ -653,7 +654,7 @@ function renderArchives() {
           : manual.relation === 'mount_unavailable'
             ? 'Mount unavailable. Reconnect in content mode and retry. The archive remains retained.'
             : 'Slot state is unclassified. Do not assume it is empty. The archive remains retained.') + '</div>' : '';
-    const checklist = manual && manual.eligible
+    const checklist = item.manualFreeEligible && manual && manual.eligible
       ? '<section class="manualFree" aria-label="Manual freeing checklist"><h3 tabindex="-1" data-manual-focus="' + attr(item.id) + '">Manual freeing checklist</h3>' +
         '<p><b>Exact identity:</b> ' + esc(identity) + '</p>' +
         '<label><input type="checkbox" onchange="acknowledgeManualFree(' + fileArg + ',this.checked)"> I confirm this exact archive, song, source, and slot.</label>' +
