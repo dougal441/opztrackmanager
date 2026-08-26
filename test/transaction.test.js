@@ -1119,6 +1119,33 @@ test('project restore metadata failure stays non-success with verified output re
   assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(original));
 });
 
+test('project restore rollback reports verified original bytes after post-write failure', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const original = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  const archive = writeSchemaBundle(roots.libraryRoot, 'restore-rollback', schemaInfo(original), original);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  subject.testHooks.afterRestoreRename = () => { throw new Error('readback fail'); };
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => {
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const state = await requestJson(subject.server, '/api/state');
+  const shelf = state.body.archiveShelf.verified.find(item => item.id === 'restore-rollback');
+  const target = state.body.slots.find(item => item.slot === 1);
+  const result = await requestJson(subject.server, '/api/restore', {
+    file: 'restore-rollback', auto: false, archiveRevision: shelf.archiveRevision, slot: 1,
+    targetFingerprint: { sha256: target.sha256, bytes: target.bytes }, sourceToken: target.sourceToken,
+  });
+  assert.equal(result.status, 500);
+  assert.equal(result.body.recovery.state, 'rolled_back');
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(original));
+});
+
 test('guard before capture rejects an HTTP competitor with zero source work', async t => {
   const roots = tempRoots(t);
   useFixtureSource(t, roots.sourceRoot);
