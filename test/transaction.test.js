@@ -1155,7 +1155,7 @@ test('archive shelf is the only archive renderer and songs show counts only', ()
 test('tab semantics provide archive shelf roving focus', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   assert.match(html, /<nav class="tabs" role="tablist"/);
-  assert.match(html, /nav\.tabs \.tab, \.archiveShelf \.btn \{ min-height: 44px; \}/);
+  assert.match(html, /nav\.tabs \.tab, \.archiveShelf \.btn \{ min-height: 44px; font-weight: 600; \}/);
   for (const [id, controls, label] of [
     ['tab-songs', 'view-songs', 'songs'],
     ['tab-archives', 'view-archives', 'archive shelf'],
@@ -1212,13 +1212,21 @@ test('archive escaping overflow and reduced motion contracts are explicit', () =
   assert.match(body, /attr\(item\.created/);
   assert.match(body, /esc\(file\.path/);
   assert.match(body, /esc\(file\.sha256/);
-  assert.match(html, /--dim: #747169/);
+  assert.match(html, /--dim: #6e6b64/);
   assert.match(html, /--accent-text: #c93400/);
-  assert.match(html, /\.badge\.verified \{ color: var\(--accent-text\)/);
+  assert.match(html, /\.badge\.verified \{ color: var\(--accent-text\); border-color: var\(--accent\)/);
   assert.match(html, /\.manualPrepare \{ background: var\(--accent\)/);
   assert.match(html, /\.manualWarning \{ border-left: 4px solid var\(--ink\)/);
   assert.match(html, /\.archiveIntro h2 \{ font: 600 15px\/1\.3/);
   assert.match(html, /\.archiveName \{ font: 600 15px\/1\.3/);
+  assert.match(html, /nav\.tabs \.tab, \.archiveShelf \.btn \{ min-height: 44px; font-weight: 600/);
+  assert.match(html, /\.manualFree b \{ font-weight: 600/);
+  assert.match(html, /\.archiveShelf summary:focus-visible[^}]+outline-color: var\(--accent-text\)/);
+  assert.match(html, /class="archiveError" role="status" aria-live="polite"/);
+  assert.match(html, /archiving slot ['"] \+ archiveMatch\[1\]\.padStart\(2, '0'\) \+ '…'/);
+  assert.match(html, /Manual freeing stopped\. The archive or mounted source no longer matches/);
+  assert.match(html, /Manual freeing is unavailable until the project, whole sample-pack grid, metadata, and snippet status are portable and verified/);
+  assert.match(html, /Connect the original OP-Z in content mode, then refresh\. The mounted slot must still match this archive/);
 });
 
 test('diagnostic actions stay absent from archive shelf diagnostics', () => {
