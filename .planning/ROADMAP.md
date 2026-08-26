@@ -62,7 +62,7 @@ Plans:
   2. User can browse a first-class archive shelf view with each verified song's name, tags, step matrix, provenance, snippet availability, and verification status.
   3. User can archive a verified song and follow explicit on-device manual-clear instructions while automatic clearing is still unproven.
 
-**Plans**: 1/3 plans executed
+**Plans**: 3/3 plans executed
 **UI hint**: yes
 
 Plans:
@@ -73,11 +73,11 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — Render one newest-first first-class Archive Shelf from the shared server classifier
+- [x] 02-02-PLAN.md — Render one newest-first first-class Archive Shelf from the shared server classifier
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — Gate official manual-free guidance behind device-only read checks and prove mounted non-mutation
+- [x] 02-03-PLAN.md — Gate official manual-free guidance behind device-only read checks and prove mounted non-mutation
 
 ### Phase 3: Guarded Restore & Instrument Recovery
 
@@ -147,7 +147,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Verified Transaction Foundation | 3/3 | Complete    | 2026-08-26 |
-| 2. Verified Archive Shelf & Manual Freeing | 1/3 | In Progress|  |
+| 2. Verified Archive Shelf & Manual Freeing | 3/3 | In Progress|  |
 | 3. Guarded Restore & Instrument Recovery | 0/TBD | Not started | - |
 | 4. Split Review & Confirmed Intent | 0/TBD | Not started | - |
 | 5. Validated Split-Half Archives | 0/TBD | Not started | - |

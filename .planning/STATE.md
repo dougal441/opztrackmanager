@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 2
 current_phase_name: Verified Archive Shelf & Manual Freeing
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-08-25T21:28:07.324Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-08-26T02:07:25.440Z"
 last_activity: 2026-08-26
 last_activity_desc: Phase 2 execution started
-state_head: a8d091ea38cf5787e235907f2521d06e70617946
+state_head: 8c7908e9ee3fe48ea87920db971efccd849d920c
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 6
   percent: 17
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 ## Current Position
 
 Phase: 2 (Verified Archive Shelf & Manual Freeing) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-26 — Phase 2 execution started
 
@@ -61,6 +61,7 @@ Progress: [████████████████████] 3/3 pla
 | Phase 01 P02 | 13 min | 2 tasks | 3 files |
 | Phase 01 P03 | 7 min | 2 tasks | 3 files |
 | Phase 02-verified-archive-shelf-manual-freeing P01 | 11min | 2 tasks | 2 files |
+| Phase 02 P03 | 9min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - Phase 6: Automatic clearing remains disabled until one method passes fixture and device checks; manual clearing remains the fallback.
 - [Phase 2]: Schema 1 stores only bounded public metadata, sanitized provenance, and current-byte project/snippet/whole-grid evidence.
 - [Phase 2]: Project verification, archive completeness, restore eligibility, and manual-free eligibility remain independent derived facts.
+- [Phase 2]: Manual-free eligibility is recomputed from complete stored evidence and exact fresh mounted slot bytes on every read.
+- [Phase 2]: Phase 2 keeps all undocumented post-clear representations unclassified; confirmed-empty evidence remains Phase 6 work.
 
 ### Pending Todos
 
@@ -94,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-25T21:28:07.283Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-08-26T02:07:25.398Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

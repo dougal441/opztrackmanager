@@ -26,7 +26,7 @@
 - [x] **SAFE-01**: User's destructive operation stops without switching to `opzdisk/` if the captured OP-Z mount disappears or changes during the transaction
 - [x] **SAFE-02**: User cannot start destructive operations with invalid slot numbers, bundle identifiers, paths, or concurrent mutation requests
 - [x] **SAFE-03**: User sees whether an operation targeted the mounted OP-Z or local fixture and receives the required eject, reconnect, and refresh guidance
-- [ ] **SAFE-04**: User can archive a verified song and follow a guided manual device-clear fallback while automatic clearing remains unproven
+- [x] **SAFE-04**: User can archive a verified song and follow a guided manual device-clear fallback while automatic clearing remains unproven
 
 ### Split Projects
 
@@ -83,7 +83,7 @@
 | SAFE-01 | Phase 1 | Complete |
 | SAFE-02 | Phase 1 | Complete |
 | SAFE-03 | Phase 1 | Complete |
-| SAFE-04 | Phase 2 | Pending |
+| SAFE-04 | Phase 2 | Complete |
 | SPLT-01 | Phase 4 | Pending |
 | SPLT-02 | Phase 4 | Pending |
 | SPLT-03 | Phase 4 | Pending |
