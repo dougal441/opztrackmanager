@@ -1386,6 +1386,25 @@ test('archive refresh removes a cached manual-free checklist when current eligib
   assert.doesNotMatch(root.innerHTML, /Manual freeing checklist|project \+ stop \+ shift|data-manual-control/);
 });
 
+test('final manual-free verification focuses its result instead of the checklist heading', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  const heading = { dataset: { manualFocus: 'archive-one' }, focused: false, focus() { this.focused = true; } };
+  const result = { dataset: { manualResult: 'archive-one' }, focused: false, focus() { this.focused = true; } };
+  let selector = '';
+  const context = vm.createContext({
+    manualFreeState: new Map(),
+    api: async () => ({ eligible: true, relation: 'archived_song_present' }),
+    renderArchives() {}, toast() {},
+    document: { querySelectorAll(value) { selector = value; return value.includes('manualResult') ? [result] : [heading]; } },
+  });
+  vm.runInContext(html.match(/async function refreshManualFree\([\s\S]*?\n\}/)[0], context);
+
+  await context.refreshManualFree('archive-one');
+  assert.equal(selector, '.manualResult[data-manual-result]');
+  assert.equal(result.focused, true);
+  assert.equal(heading.focused, false);
+});
+
 test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, async t => {
   const mountedRoot = '/Volumes/OP-Z';
   const sourcePath = path.join(mountedRoot, 'projects', 'project01.opz');

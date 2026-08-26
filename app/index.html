@@ -645,9 +645,9 @@ function renderArchives() {
     const valueKey = slot === 10 ? 0 : slot;
     const identity = 'archive ' + item.id + ' · “' + (item.metadata.name || 'untitled') + '” · slot ' + String(slot).padStart(2, '0') + ' · ' + item.source.label;
     const stop = manual && !manual.eligible
-      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-focus="' + attr(item.id) + '">' + esc(manual.guidance) + '</div>' : '';
+      ? '<div class="manualResult" role="alert" tabindex="-1" ' + (manual.stage === 'result' ? 'data-manual-result' : 'data-manual-focus') + '="' + attr(item.id) + '">' + esc(manual.guidance) + '</div>' : '';
     const result = manual && manual.stage === 'result'
-      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-focus="' + attr(item.id) + '">' + esc(manual.relation === 'archived_song_present'
+      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-result="' + attr(item.id) + '">' + esc(manual.relation === 'archived_song_present'
         ? 'Archived song still present. Stop; do not repeat the clear gesture. The archive remains retained.'
         : manual.relation === 'unexpected_non_empty_replacement'
           ? 'Unexpected non-empty replacement. Stop and inspect the device. The archive remains retained.'
@@ -732,7 +732,7 @@ async function refreshManualFree(file) {
     manualFreeState.set(file, { ...result, stage: 'result' });
   }
   renderArchives();
-  const focus = [...document.querySelectorAll('[data-manual-focus]')].find(element => element.dataset.manualFocus === file);
+  const focus = [...document.querySelectorAll('.manualResult[data-manual-result]')].find(element => element.dataset.manualResult === file);
   if (focus) focus.focus();
   toast(result.relation === 'archived_song_present' ? 'archived song still present' : result.guidance);
 }
