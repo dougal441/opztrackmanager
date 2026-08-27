@@ -158,11 +158,11 @@ Plans:
   2. User can automatically archive and free a slot only when its archive is verified, the proven clear method is enabled, and post-reconnect device state confirms success.
   3. User retains a verified recovery archive and receives explicit recovery instructions whenever automatic clearing cannot be confirmed.
 
-**Plans**: 1 plan
+**Plans**: 1/1 plans executed
 
 Plans:
 
-- [ ] 06-01-PLAN.md — Gate automatic delete-project-file clearing behind fixture and sacrificial-device acceptance
+- [x] 06-01-PLAN.md — Gate automatic delete-project-file clearing behind fixture and sacrificial-device acceptance
 
 ## Progress
 
@@ -176,4 +176,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Guarded Restore & Instrument Recovery | 3/3 | In Progress|  |
 | 4. Split Review & Confirmed Intent | 1/1 | In Progress|  |
 | 5. Validated Split-Half Archives | 1/1 | In Progress|  |
-| 6. Hardware-Gated Automatic Clearing | 0/TBD | Not started | - |
+| 6. Hardware-Gated Automatic Clearing | 1/1 | In Progress|  |
