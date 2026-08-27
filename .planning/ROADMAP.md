@@ -140,7 +140,11 @@ Plans:
   2. User sees synthesized halves remain ineligible for restore until their format has a recorded sacrificial-device eject, reconnect, rejection, playback, and recovery acceptance result.
   3. User can restore a synthesized half as an independent song only after that recorded device acceptance check passes.
 
-**Plans**: TBD
+**Plans**: 1/1 planned
+
+Plans:
+
+- [ ] 05-01-PLAN.md — Synthesize deterministic confirmed split-half archives and gate restore on sacrificial-device acceptance
 
 ### Phase 6: Hardware-Gated Automatic Clearing
 
