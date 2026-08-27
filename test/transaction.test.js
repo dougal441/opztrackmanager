@@ -1110,6 +1110,20 @@ test('project restore requires an explicit fresh target and retains a verified r
   assert.ok(subject.classifyArchive(path.join(subject.testHooks.autoRoot, result.body.recovery.id)).verified);
 });
 
+test('verified project writes remove FAT AppleDouble sidecars', t => {
+  const roots = tempRoots(t);
+  const captured = subject.captureSource(1, roots.source);
+  const renameSync = fs.renameSync;
+  fs.renameSync = function (from, to) {
+    const result = renameSync.call(this, from, to);
+    fs.writeFileSync(path.join(path.dirname(to), `._${path.basename(to)}`), 'simulated AppleDouble');
+    return result;
+  };
+  try { subject.writeVerifiedProject(captured, captured.buffer); }
+  finally { fs.renameSync = renameSync; }
+  assert.equal(fs.existsSync(path.join(roots.source.path, '._project01.opz')), false);
+});
+
 test('project restore failure returns a sanitized retained recovery receipt', async t => {
   const roots = tempRoots(t);
   useFixtureSource(t, roots.sourceRoot);

@@ -1226,6 +1226,7 @@ function writeVerifiedProject(captured, buffer, options = {}) {
     assertCapturedRoot(captured);
     if (typeof options.beforeRename === 'function') options.beforeRename();
     fs.renameSync(temp, target);
+    fs.rmSync(path.join(path.dirname(target), `._${path.basename(target)}`), { force: true });
     if (typeof options.afterRename === 'function') options.afterRename();
     assertCapturedRoot(captured);
     const reread = fs.readFileSync(target);
@@ -1237,6 +1238,7 @@ function writeVerifiedProject(captured, buffer, options = {}) {
     return { sha256: sha256(reread), bytes: reread.length };
   } finally {
     try { fs.unlinkSync(temp); } catch {}
+    try { fs.unlinkSync(path.join(path.dirname(temp), `._${path.basename(temp)}`)); } catch {}
   }
 }
 function swapStale(captured, expected, sourceToken) {
