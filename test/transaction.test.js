@@ -1423,7 +1423,11 @@ test('whole-grid restore does not require space for a second grid on the source'
         && !relative.startsWith('samplepacks' + path.sep)) {
       throw Object.assign(new Error('simulated full source'), { code: 'ENOSPC' });
     }
-    return writeFileSync.call(this, file, ...args);
+    const result = writeFileSync.call(this, file, ...args);
+    if (relative.startsWith('samplepacks' + path.sep) && !path.basename(file).startsWith('._')) {
+      writeFileSync.call(this, path.join(path.dirname(file), `._${path.basename(file)}`), 'simulated AppleDouble');
+    }
+    return result;
   };
   let result;
   try {
@@ -1435,6 +1439,7 @@ test('whole-grid restore does not require space for a second grid on the source'
 
   assert.equal(result.status, 200, JSON.stringify(result.body));
   assert.equal(fs.existsSync(path.join(live, 'stale.engine')), false);
+  assert.equal(fs.existsSync(path.join(live, '._kick.aif')), false);
   assert.equal(fs.readFileSync(path.join(live, 'kick.aif'), 'utf8'), 'archived');
   assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, result.body.recovery.id)).verified, true);
 });

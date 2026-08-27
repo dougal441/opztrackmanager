@@ -18,7 +18,7 @@ updated: 2026-08-27
 - hypothesis: Confirmed — whole-grid restore required a second complete grid on the capacity-constrained source even though verified archive and recovery copies already existed on the host.
 - test: The regression denies writes to source-root siblings while permitting writes inside the live `samplepacks`; direct in-place restore must succeed and retain a verified host recovery.
 - expecting: Restore succeeds without creating `.samplepacks-stage-*` or `.samplepacks-retained-*` on the source, and any post-start failure rolls back from the verified host recovery.
-- next_action: Re-run the mounted hardware UAT when the OP-Z is available; implementation and local non-listening checks are complete.
+- next_action: Resolved; mounted same-byte project and whole-grid UAT passes with exact whole-tree evidence.
 - bug_class: bohrbug
 
 # Evidence
@@ -47,6 +47,10 @@ updated: 2026-08-27
   checked: Syntax, whitespace, and focused local verification after the fix.
   found: `node --check` passed for `server.js` and `test/transaction.test.js`; `git diff --check` passed; the non-listening whole-grid archive evidence test passed. The new HTTP regression could not bind `127.0.0.1` because the sandbox returned `EPERM`.
   implication: Static and archive/recovery checks pass locally; route execution remains covered by the committed regression for an environment that permits localhost binding.
+- timestamp: 2026-08-27
+  checked: Mounted rerun after capacity and AppleDouble cleanup fixes.
+  found: The same-byte project/grid UAT passed on `/Volumes/OP-Z`, restored the complete device tree exactly, and emitted evidence digest `f19597366ae8e00e318bc00e1e8a4115602d8b100a826a3b788050aef6fed6cf`.
+  implication: The real FAT capacity boundary and macOS sidecar behavior are both covered on device.
 
 
 # Eliminated
@@ -57,6 +61,6 @@ updated: 2026-08-27
 # Resolution
 
 - root_cause: `/api/instruments/restore-grid` created a complete staging copy under the OP-Z root and then retained the complete old grid there, requiring capacity for a second grid before replacement. The real device had about 4 MB free for a roughly 25 MB grid, so staging failed with a raw filesystem error that was sanitized to `OPERATION_FAILED`.
-- fix: Removed both on-device full-grid copies. The route now verifies the selected host archive, creates and rechecks a deep host recovery, revalidates source identity and the live manifest, restores directly into `samplepacks`, verifies readback, and rolls back from the host recovery through `gridRestoreError` on any post-start failure.
-- verification: Syntax and diff checks passed; the focused non-listening whole-grid archive/recovery test passed. The new constrained-space HTTP regression is committed but could not execute here because localhost binding failed with `EPERM`; mounted hardware UAT remains the environment-level confirmation.
+- fix: Removed both on-device full-grid copies. The route now verifies the selected host archive, creates and rechecks a deep host recovery, revalidates source identity and the live manifest, restores directly into `samplepacks`, removes macOS-generated AppleDouble sidecars, verifies readback, and rolls back from the host recovery through `gridRestoreError` on any post-start failure.
+- verification: Focused regression passed, all 61 local tests passed, and the mounted same-byte project/grid UAT passed with exact whole-tree digest `f19597366ae8e00e318bc00e1e8a4115602d8b100a826a3b788050aef6fed6cf`.
 - files_changed: `server.js`, `test/transaction.test.js`, `.planning/debug/resolved/mounted-grid-restore-500.md`

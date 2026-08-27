@@ -1310,6 +1310,16 @@ function restoreGrid(root, backup) {
   fs.rmSync(root, { recursive: true, force: true });
   fs.mkdirSync(root, { recursive: true });
   copyDir(backup, root);
+  // macOS writes provenance as AppleDouble sidecars on the OP-Z FAT volume.
+  const clean = dir => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (name.startsWith('._')) fs.rmSync(full, { recursive: true, force: true });
+      else if (fs.lstatSync(full).isDirectory()) clean(full);
+    }
+  };
+  clean(root);
+  fs.rmSync(path.join(path.dirname(root), `._${path.basename(root)}`), { force: true });
 }
 function instrumentRecoveryError(error, recovery, captured, backup, gridRoot) {
   let state = 'recovery_required';
