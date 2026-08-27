@@ -1777,29 +1777,24 @@ const server = http.createServer(async (req, res) => {
         const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
         fs.mkdirSync(autoRoot, { recursive: true });
         const recovery = archiveCapturedProject(captured, { libraryRoot: autoRoot, name: 'recovery-instruments-grid', deep: true, operation: mutation.operation });
-        const stage = path.join(captured.root, `.samplepacks-stage-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
-        const retained = path.join(captured.root, `.samplepacks-retained-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
+        const rollback = path.join(resolveChild(autoRoot, recovery.file), 'samplepacks');
+        if (!manifestMatches(rollback, before)) throw transactionError('GRID_RECOVERY_VERIFY_FAILED', 'Instrument grid recovery could not be verified.', 'The live instrument grid was not changed.', 500);
         let started = false;
         try {
-          fs.mkdirSync(stage, { recursive: false });
-          copyDir(incoming, stage);
-          if (!manifestMatches(stage, bundle.classification.samplepacks.files)) throw transactionError('GRID_STAGE_VERIFY_FAILED', 'Archived instrument grid could not be staged safely.', 'The live instrument grid was not changed.', 500);
           assertCapturedRoot(captured);
           if (!manifestMatches(grid, before)) throw transactionError('GRID_SOURCE_CHANGED', 'The live instrument grid changed during preparation.', 'Refresh and retry. The live instrument grid was not changed.', 409);
           if (typeof testHooks.beforeGridRename === 'function') testHooks.beforeGridRename();
-          fs.renameSync(grid, retained); started = true;
+          assertCapturedRoot(captured);
+          started = true;
+          restoreGrid(grid, incoming);
           if (typeof testHooks.afterGridFirstRename === 'function') testHooks.afterGridFirstRename();
-          fs.renameSync(stage, grid);
           if (typeof testHooks.afterGridSecondRename === 'function') testHooks.afterGridSecondRename();
+          assertCapturedRoot(captured);
           if (!manifestMatches(grid, bundle.classification.samplepacks.files)) throw transactionError('GRID_VERIFY_FAILED', 'Restored instrument grid could not be verified.', 'The recovery archive remains retained.', 500);
-          fs.rmSync(retained, { recursive: true, force: true });
           return json(res, 200, { ok: true, verified: true, source: publicSource(captured), evidence: { files: bundle.classification.samplepacks.files.length }, recovery: recoveryReceipt(recovery.file, 'retained'), guidance: captured.device ? 'Whole grid was reread and verified on the mounted OP-Z in Content Mode.' : 'Whole grid was reread and verified in the local fixture.' });
         } catch (error) {
           if (!started) throw error;
-          throw gridRestoreError(error, recovery, captured, retained, grid);
-        } finally {
-          try { fs.rmSync(stage, { recursive: true, force: true }); } catch {}
-          try { fs.rmSync(retained, { recursive: true, force: true }); } catch {}
+          throw gridRestoreError(error, recovery, captured, rollback, grid);
         }
       });
     }

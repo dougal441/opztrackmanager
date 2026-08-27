@@ -1397,6 +1397,48 @@ test('whole-grid restore replaces stale files and retains a verified recovery', 
   assert.match(result.body.guidance, /fixture/);
 });
 
+test('whole-grid restore does not require space for a second grid on the source', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const live = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
+  fs.mkdirSync(live, { recursive: true });
+  fs.writeFileSync(path.join(live, 'kick.aif'), 'archived');
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const archived = await requestJson(subject.server, '/api/backup', { slot: 1, name: 'Constrained grid archive', deep: true });
+  assert.equal(archived.status, 200, JSON.stringify(archived.body));
+  const state = await requestJson(subject.server, '/api/state');
+  const slot = state.body.slots.find(item => item.sourceToken);
+  const shelfItem = state.body.archiveShelf.verified.find(item => item.id === archived.body.file);
+  fs.writeFileSync(path.join(live, 'stale.engine'), 'remove me');
+
+  const writeFileSync = fs.writeFileSync;
+  fs.writeFileSync = function (file, ...args) {
+    const relative = path.relative(roots.sourceRoot, path.resolve(file));
+    if (relative && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)
+        && !relative.startsWith('samplepacks' + path.sep)) {
+      throw Object.assign(new Error('simulated full source'), { code: 'ENOSPC' });
+    }
+    return writeFileSync.call(this, file, ...args);
+  };
+  let result;
+  try {
+    result = await requestJson(subject.server, '/api/instruments/restore-grid', {
+      file: archived.body.file, auto: false, archiveRevision: shelfItem.archiveRevision,
+      sourceToken: slot.sourceToken,
+    });
+  } finally { fs.writeFileSync = writeFileSync; }
+
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(fs.existsSync(path.join(live, 'stale.engine')), false);
+  assert.equal(fs.readFileSync(path.join(live, 'kick.aif'), 'utf8'), 'archived');
+  assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, result.body.recovery.id)).verified, true);
+});
+
 test('instrument move and snapshot retain a verified complete grid recovery', async t => {
   const roots = tempRoots(t);
   useFixtureSource(t, roots.sourceRoot);
