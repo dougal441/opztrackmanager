@@ -166,6 +166,35 @@ test('verified archive tracer publishes reread, parsed bytes with evidence', t =
   assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, false);
 });
 
+test('split review is deterministic, explicitly confirmed, and source immutable', async t => {
+  const fixture = fs.readFileSync(FIXTURE);
+  const roots = tempRoots(t, fixture);
+  const metaFile = path.join(roots.sourceRoot, 'meta.json');
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.metaFile = metaFile;
+  useFixtureSource(t, roots.sourceRoot);
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const before = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  const parentHash = crypto.createHash('sha256').update(before).digest('hex');
+  const state = await requestJson(subject.server, '/api/state');
+  const review = state.body.slots[0].splitReview;
+  assert.equal(review.suggested, true);
+  assert.deepEqual(review, subject.splitEvidence(parseProject(before), parentHash));
+  const confirmed = await requestJson(subject.server, '/api/split/confirm', {
+    parentHash,
+    halves: review.memberships.map((patterns, i) => ({ name: `Half ${i + 1}`, patterns })),
+  });
+  assert.equal(confirmed.status, 200);
+  assert.deepEqual(confirmed.body.split.halves.map(h => h.patterns), review.memberships);
+  assert.deepEqual(JSON.parse(fs.readFileSync(metaFile, 'utf8')).splits[parentHash].halves, confirmed.body.split.halves);
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(before));
+  const stale = await requestJson(subject.server, '/api/split/confirm', {
+    parentHash: '0'.repeat(64), halves: confirmed.body.split.halves,
+  });
+  assert.equal(stale.status, 409);
+});
+
 test('archive classification keeps manifest verification completeness and unicode metadata separate', t => {
   const { libraryRoot } = tempRoots(t);
   const fixture = fs.readFileSync(FIXTURE);
