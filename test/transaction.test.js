@@ -1285,10 +1285,9 @@ test('swap publishes two recoveries before it changes either slot', async t => {
 
 test('later-phase routes unavailable before filesystem mutation', async t => {
   const unavailable = [
-    '/api/clear-slot',
     '/api/op1fun/download',
   ];
-  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/clear-slot', '/api/op1fun/download'] });
+  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/op1fun/download'] });
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
   for (const route of unavailable) {
@@ -1306,6 +1305,65 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
   assert.match(html, /onclick="snapshotInstruments\(\)"/);
   assert.match(html, /restore whole instrument grid/);
   assert.match(html, /\/api\/instruments\/restore-grid/);
+});
+
+test('automatic clear is gated, archives first, and retains recovery on confirmation failure', async t => {
+  const roots = tempRoots(t);
+  const source = { ...roots.source, device: true, label: 'fixture OP-Z' };
+  fs.mkdirSync(path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01'), { recursive: true });
+  fs.writeFileSync(path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01', 'fixture.engine'), 'fixture');
+  const acceptanceFile = path.join(path.dirname(roots.libraryRoot), 'clear-acceptance.json');
+  subject.testHooks.sourceResolver = () => source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.metaFile = path.join(path.dirname(roots.libraryRoot), 'clear-meta.json');
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  subject.testHooks.clearAcceptanceFile = acceptanceFile;
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const archive = await requestJson(subject.server, '/api/backup', { slot: 1, name: 'clear fixture', deep: true });
+  assert.equal(archive.status, 200, JSON.stringify(archive.body));
+  const state = await requestJson(subject.server, '/api/state');
+  assert.equal(state.body.clearEnabled, false);
+  const slot = state.body.slots.find(item => item.slot === 1);
+  const blocked = await requestJson(subject.server, '/api/clear-slot', {
+    file: archive.body.file, auto: false, archiveRevision: state.body.archiveShelf.verified.find(item => item.id === archive.body.file).archiveRevision,
+    slot: 1, targetFingerprint: { sha256: slot.sha256, bytes: slot.bytes }, sourceToken: slot.sourceToken,
+  });
+  assert.equal(blocked.status, 409); assert.equal(blocked.body.code, 'CLEAR_UNAVAILABLE');
+  assert.equal(fs.existsSync(path.join(roots.source.path, 'project01.opz')), true);
+  fs.writeFileSync(acceptanceFile, JSON.stringify({ version: 1, method: 'delete-project-file', fixture: true,
+    device: { label: source.label, projectSha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(roots.source.path, 'project01.opz'))).digest('hex') },
+    outcomes: { eject: true, reconnect: true, rejection: true, playback: true, recovery: true, emptySlot: true }, recorded: '2026-08-25T12:00:00.000Z' }));
+  subject.testHooks.confirmClear = () => false;
+  const failed = await requestJson(subject.server, '/api/clear-slot', {
+    file: archive.body.file, auto: false, archiveRevision: state.body.archiveShelf.verified.find(item => item.id === archive.body.file).archiveRevision,
+    slot: 1, targetFingerprint: { sha256: slot.sha256, bytes: slot.bytes }, sourceToken: slot.sourceToken,
+  });
+  // complete deep archive is required before the delete boundary
+  assert.equal(archive.body.complete, true, JSON.stringify({ result: archive.body, info: JSON.parse(fs.readFileSync(path.join(roots.libraryRoot, archive.body.file, 'info.json'), 'utf8')) }));
+  assert.equal(failed.status, 409); assert.equal(failed.body.code, 'CLEAR_UNCONFIRMED');
+  assert.ok(failed.body.recovery && failed.body.recovery.id);
+  assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, failed.body.recovery.id)).verified, true);
+  assert.match(failed.body.guidance, /Reconnect.*restore/i);
+});
+
+test('clear acceptance reader rejects absent, wrong-method, and fixture-only records', t => {
+  const source = { device: true, label: 'fixture OP-Z' };
+  assert.equal(subject.clearAcceptanceValid(null, source, 'a'.repeat(64)), false);
+  const base = { version: 1, method: 'delete-project-file', fixture: true,
+    device: { label: source.label, projectSha256: 'a'.repeat(64) },
+    outcomes: { eject: true, reconnect: true, rejection: true, playback: true, recovery: true, emptySlot: true }, recorded: '2026-08-25T12:00:00.000Z' };
+  assert.equal(subject.clearAcceptanceValid({ ...base, method: 'other' }, source, 'a'.repeat(64)), false);
+  assert.equal(subject.clearAcceptanceValid(base, { ...source, device: false }, 'a'.repeat(64)), false);
+  assert.equal(subject.clearAcceptanceValid(base, source, 'a'.repeat(64)), true);
+});
+
+test('automatic clear sacrificial-device UAT', {
+  skip: !process.env.OPZ_HARDWARE_UAT || !process.env.OPZ_ROOT
+    || !fs.existsSync(path.join(process.env.OPZ_ROOT, 'projects'))
+}, () => {
+  assert.fail('Hardware acceptance is pending; run the direct Content Mode UAT before recording evidence.');
 });
 
 test('whole-grid restore replaces stale files and retains a verified recovery', async t => {

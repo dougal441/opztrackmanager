@@ -331,6 +331,7 @@
 let STATE = null, AIFS = null, SETTINGS = {}, mutationBusy = null, lastStatus = '';
 let shelfLoading = true, shelfError = '';
 const manualFreeState = new Map();
+const clearState = new Map();
 const restoreState = new Map();
 const splitReviewState = new Map();
 let expanded = JSON.parse(localStorage.getItem('opz.expanded') || 'null');
@@ -384,6 +385,7 @@ function sourceGuidance(source, outcome) {
 
 async function load() {
   manualFreeState.clear();
+  if (typeof clearState !== 'undefined') clearState.clear();
   restoreState.clear();
   shelfLoading = true;
   renderArchives();
@@ -764,6 +766,12 @@ function renderArchives() {
     const manualAction = item.manualFreeEligible
       ? '<p><b>Manual-free eligibility:</b> current exact match</p><button class="btn manualPrepare" onclick="prepareManualFree(' + fileArg + ',this)">prepare manual freeing</button>'
       : '<p><b>Manual-free eligibility:</b> unavailable</p><p>' + esc(ineligibleCopy) + '</p>';
+    const currentSlot = slotFacts.find(entry => entry.slot === slot);
+    const clear = typeof clearState === 'undefined' ? null : clearState.get(item.id);
+    const clearAction = STATE.clearEnabled === true && item.complete && item.source.device && currentSlot && currentSlot.sha256
+      ? '<p><b>Automatic clearing:</b> exact acceptance method enabled</p><button class="btn live" onclick="clearProject(' + fileArg + ',' + item.auto + ')">archive and clear slot</button>' +
+        (clear ? '<div class="manualResult" role="alert" tabindex="-1">' + esc(clear.guidance || 'Automatic clearing was not confirmed. The recovery archive remains retained.') + '</div>' : '')
+      : '<p><b>Automatic clearing:</b> unavailable; use the manual-free checklist.</p>';
     return '<details class="archiveRow"><summary class="archiveSummary" data-archive-id="' + attr(item.id) + '">' +
       '<div><div class="archiveName">' + nameMarkup + '</div><div class="archiveTags">' + tagsMarkup + '</div></div>' +
       matrixSvg(item, 136, 'Step activity matrix for “' + (item.metadata.name || 'untitled') + '”') +
@@ -786,7 +794,7 @@ function renderArchives() {
       ' · <b>Total bytes:</b> ' + item.samplepacks.summary.totalBytes + '</p><p class="evidenceValue">' + esc(trackText) + '</p>' + fileEvidence + '</section>' +
       '<section class="evidenceGroup"><h3>Provenance and action</h3>' + splitStatus + '<p><b>Source:</b> ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
       '</p><p><b>Source slot:</b> ' + esc(String(item.source.slot).padStart(2, '0')) + '</p><p><b>Created:</b> <time datetime="' + attr(item.created) + '">' +
-      esc(new Date(item.created).toLocaleString()) + '</time></p>' + manualAction + '</section>' + restoreAction + checklist +
+      esc(new Date(item.created).toLocaleString()) + '</time></p>' + clearAction + manualAction + '</section>' + restoreAction + checklist +
       '</div></details>';
   }).join('') : '<div class="empty"><b>No verified archives yet</b><br>Open a song, then choose “archive complete song”.</div>';
   const diagnosticMarkup = shelf.diagnostics.length ? shelf.diagnostics.map(item => '<details class="diagnosticRow"><summary class="diagnosticSummary">' +
@@ -798,6 +806,19 @@ function renderArchives() {
     '<div class="archiveCount" aria-live="polite">' + esc(countLabel(shelf.verifiedCount, 'verified archive')) + '</div></div>' + verifiedMarkup +
     '<section class="archiveDiagnostics" aria-labelledby="archiveDiagnosticsHeading"><h2 id="archiveDiagnosticsHeading">Archive diagnostics</h2>' +
     '<div class="archiveCount">' + esc(countLabel(shelf.diagnosticCount, 'archive diagnostic')) + '</div>' + diagnosticMarkup + '</section>';
+}
+async function clearProject(file, auto) {
+  const item = STATE.archiveShelf.verified.find(entry => entry.id === file && entry.auto === auto);
+  const slot = item && STATE.slots.find(entry => entry.slot === item.source.slot);
+  if (!item || !slot || !STATE.clearEnabled || !slot.sourceToken) return toast('automatic clearing is unavailable');
+  if (!confirm('Archive and clear slot ' + String(slot.slot).padStart(2, '0') + '? The verified recovery archive will be retained.')) return;
+  try {
+    const result = await runMutation('archiving and clearing slot ' + String(slot.slot).padStart(2, '0') + '…', () => api('/api/clear-slot', {
+      file, auto, archiveRevision: item.archiveRevision, slot: slot.slot,
+      targetFingerprint: { sha256: slot.sha256, bytes: slot.bytes }, sourceToken: slot.sourceToken,
+    }));
+    clearState.set(file, result); toast('slot cleared · recovery retained'); await load();
+  } catch (error) { clearState.set(file, error); renderArchives(); }
 }
 async function prepareManualFree(file, button) {
   button.disabled = true;

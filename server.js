@@ -21,6 +21,7 @@ const AUTO_DIR = path.join(LIB_DIR, 'auto-backups');
 const TRASH_DIR = path.join(LIB_DIR, 'instrument-trash');
 const DATA_DIR = path.join(ROOT, 'data');
 const META_FILE = path.join(DATA_DIR, 'meta.json');
+const CLEAR_ACCEPTANCE_FILE = path.join(DATA_DIR, 'clear-acceptance.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const MUSIC_DIR = path.dirname(ROOT);
 const PORT = 8765;
@@ -29,14 +30,12 @@ const SOURCE_TOKEN_SECRET = crypto.randomBytes(32);
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
 const META_TRACKS = ['kick', 'snare', 'hihat', 'sample', 'bass', 'lead', 'arp', 'chord'];
 const mutationRouteInventory = Object.freeze({
-  enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
+  enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
   unavailable: [
-    '/api/clear-slot',
     '/api/op1fun/download',
   ],
 });
 const unavailableMutationGuidance = Object.freeze({
-  '/api/clear-slot': 'Automatic clearing remains disabled until Phase 6 hardware validation.',
   '/api/op1fun/download': 'Pack installation returns in Phase 3 with verified instrument recovery.',
 });
 
@@ -219,6 +218,29 @@ function acceptanceValid(acceptance, projectSha256) {
     && acceptance.version === 1 && acceptance.projectSha256 === projectSha256
     && ['eject', 'reconnect', 'rejection', 'playback', 'recovery'].every(key => acceptance[key] === true)
     && isIsoTime(acceptance.recorded);
+}
+function loadClearAcceptance(file = CLEAR_ACCEPTANCE_FILE) {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return isPlainObject(value) ? value : null;
+  } catch { return null; }
+}
+function clearAcceptanceValid(record, source, projectSha256) {
+  if (!isPlainObject(record) || !isPlainObject(source) || typeof projectSha256 !== 'string') return false;
+  if (!hasExactKeys(record, ['version', 'method', 'fixture', 'device', 'outcomes', 'recorded'])
+      || record.version !== 1 || record.method !== 'delete-project-file' || record.fixture !== true
+      || !isPlainObject(record.device) || !hasExactKeys(record.device, ['label', 'projectSha256'])
+      || typeof record.device.label !== 'string' || !record.device.label || record.device.label.length > 80
+      || record.device.projectSha256 !== projectSha256
+      || record.device.label !== String(source.label || '')
+      || !isPlainObject(record.outcomes)
+      || !hasExactKeys(record.outcomes, ['eject', 'reconnect', 'rejection', 'playback', 'recovery', 'emptySlot'])
+      || Object.values(record.outcomes).some(value => value !== true)
+      || !isIsoTime(record.recorded)) return false;
+  return source.device === true;
+}
+function clearEnabled(source, projectSha256, record = loadClearAcceptance()) {
+  return clearAcceptanceValid(record, source, projectSha256);
 }
 function sanitizeSplitName(value, field) {
   validateString(value, field, 80, false);
@@ -885,6 +907,18 @@ function validateBackup(body) {
   validateString(body.name, 'name', 120);
   return body;
 }
+function validateClear(body) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['file', 'auto', 'archiveRevision', 'slot', 'targetFingerprint', 'sourceToken'])) {
+    throw requestError(400, 'INVALID_CLEAR_REQUEST', 'Clear request must contain one reviewed archive and target.');
+  }
+  validateBundleId(body.file); validateBoolean(body.auto, 'auto'); validateSlot(body.slot);
+  validateString(body.archiveRevision, 'archiveRevision', 64, false); validateString(body.sourceToken, 'sourceToken', 64, false);
+  if (!/^[a-f0-9]{64}$/i.test(body.archiveRevision) || !/^[a-f0-9]{64}$/i.test(body.sourceToken)
+      || !isPlainObject(body.targetFingerprint) || !hasExactKeys(body.targetFingerprint, ['sha256', 'bytes'])
+      || !/^[a-f0-9]{64}$/i.test(body.targetFingerprint.sha256) || !Number.isSafeInteger(body.targetFingerprint.bytes)
+      || body.targetFingerprint.bytes < 1) throw requestError(400, 'INVALID_CLEAR_REQUEST', 'Clear target evidence is invalid.');
+  return body;
+}
 function validateRestore(body) {
   if (!isPlainObject(body) || !hasExactKeys(body, ['file', 'auto', 'archiveRevision', 'slot', 'targetFingerprint', 'sourceToken'])) {
     throw requestError(400, 'INVALID_RESTORE_REQUEST', 'Restore request must contain one reviewed archive and target.');
@@ -1413,6 +1447,10 @@ const server = http.createServer(async (req, res) => {
       const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
       const library = scanLibrary(meta, libraryRoot, autoRoot);
       const drafts = scanDrafts(libraryRoot);
+      const clearResolver = Object.hasOwn(testHooks, 'clearAcceptanceFile') ? (testHooks.sourceResolver || getSource) : getSource;
+      const slotState = scanSlots(meta, Object.hasOwn(testHooks, 'clearAcceptanceFile') ? clearResolver : getSource);
+      const clearSource = activeMutation ? null : clearResolver();
+      const clearSlot = clearSource && slotState.slots.find(slot => slot.sourceToken);
       const manualOptions = {
         libraryRoot,
         findDevice: testHooks.deviceRootResolver || findDeviceRoot,
@@ -1420,7 +1458,8 @@ const server = http.createServer(async (req, res) => {
         assertCaptured: testHooks.manualAssertCapturedSource || assertCapturedSource,
       };
       return json(res, 200, {
-        ...scanSlots(meta),
+        ...slotState,
+        clearEnabled: Boolean(clearSlot && clearEnabled(clearSource, clearSlot.sha256)),
         library,
         archiveShelf: archiveShelfData(library, drafts, (file, auto) => auto
           ? { eligible: false, relation: 'archive_ineligible', guidance: 'Automatic recovery backups are retained but do not offer manual-free guidance.' }
@@ -1439,6 +1478,54 @@ const server = http.createServer(async (req, res) => {
         capture: testHooks.manualCaptureSource || captureSource,
         assertCaptured: testHooks.manualAssertCapturedSource || assertCapturedSource,
       }), { 'Cache-Control': 'no-store' });
+    }
+    if (p === '/api/clear-slot' && req.method === 'POST') {
+      const body = validateClear(await readBody(req));
+      return await withMutation(`clear slot ${body.slot}`, async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source || source.device !== true) throw transactionError('CLEAR_UNAVAILABLE', 'Automatic clearing is unavailable.',
+          'Connect the original OP-Z in Content Mode, or use the manual-free checklist.', 409);
+        const captured = (testHooks.captureSource || captureSource)(body.slot, source);
+        mutation.source = publicSource(captured);
+        if (captured.sourceToken !== body.sourceToken || captured.sha256 !== body.targetFingerprint.sha256 || captured.bytes !== body.targetFingerprint.bytes) {
+          throw transactionError('CLEAR_TARGET_STALE', 'The selected slot changed after preview.', 'Refresh and review the archive and mounted slot again.', 409);
+        }
+        const acceptance = loadClearAcceptance(testHooks.clearAcceptanceFile || CLEAR_ACCEPTANCE_FILE);
+        if (!clearEnabled(source, captured.sha256, acceptance)) throw transactionError('CLEAR_UNAVAILABLE', 'Automatic clearing is unavailable.',
+          'Complete the exact delete-project-file fixture and sacrificial-device acceptance, or use the manual-free checklist.', 409);
+        const bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR,
+          Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
+        if (bundle.archiveRevision !== body.archiveRevision || !bundle.classification.verified || !bundle.classification.complete
+            || !bundle.classification.samplepacks.captured) throw transactionError('CLEAR_ARCHIVE_INCOMPLETE', 'The reviewed archive is not a complete verified recovery.',
+          'Create a complete archive first. The mounted source was not changed.', 409);
+        assertCapturedSource(captured);
+        const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
+        const recovery = archiveCapturedProject(captured, { libraryRoot: autoRoot, name: `recovery-slot${body.slot}`, deep: true, operation: mutation.operation });
+        const receipt = recoveryReceipt(recovery.file, 'retained');
+        let deleted = false;
+        try {
+          assertCapturedSource(captured);
+          if (typeof testHooks.beforeClearDelete === 'function') testHooks.beforeClearDelete(captured);
+          fs.unlinkSync(captured.projectPath); deleted = true;
+          if (typeof testHooks.afterClearDelete === 'function') testHooks.afterClearDelete(captured);
+          assertCapturedRoot(captured);
+          const confirmed = typeof testHooks.confirmClear === 'function'
+            ? testHooks.confirmClear(captured)
+            : !fs.existsSync(captured.projectPath);
+          if (!confirmed || fs.existsSync(captured.projectPath)) throw transactionError('CLEAR_UNCONFIRMED', 'Automatic clearing could not be confirmed.',
+            'Reconnect the original OP-Z in Content Mode and refresh. If the slot is not empty, restore the retained recovery archive.', 409);
+          return json(res, 200, { ok: true, verified: true, cleared: true, slot: body.slot, source: publicSource(captured),
+            recovery: receipt, guidance: 'Slot cleared and the empty-slot state was confirmed on the same mounted OP-Z. The verified recovery archive remains retained.' });
+        } catch (error) {
+          error.status = Number.isInteger(error.status) ? error.status : 409;
+          error.code = /^[A-Z][A-Z0-9_]+$/.test(error.code || '') ? error.code : 'CLEAR_UNCONFIRMED';
+          error.message = 'Automatic clearing was not confirmed.';
+          error.guidance = 'Reconnect the original OP-Z in Content Mode and refresh. Restore the retained recovery archive if the slot is not empty.';
+          error.recovery = receipt;
+          if (!deleted) error.message = 'Automatic clearing did not start.';
+          throw error;
+        }
+      });
     }
     if (p === '/api/pattern') {
       const slot = parseInt(url.searchParams.get('slot'), 10);
@@ -1959,6 +2046,10 @@ module.exports = {
   validateSplitIntent,
   validateSplitArchiveRequest,
   validateAcceptanceRequest,
+  validateClear,
+  loadClearAcceptance,
+  clearAcceptanceValid,
+  clearEnabled,
   synthesizeSplitProject,
   acceptanceValid,
   validateRestore,
