@@ -93,7 +93,7 @@ Plans:
   4. User receives a recovery reference and a non-success outcome whenever a restore failure occurs after mutation has started.
   5. User restores only the project by default; restoring the whole instrument grid is a separate explicit action protected by its own verified pre-restore backup.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 **UI hint**: yes
 
 Plans:
@@ -104,7 +104,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — Protect both sides of swap and route local instrument actions through complete recovery
+- [x] 03-02-PLAN.md — Protect both sides of swap and route local instrument actions through complete recovery
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -162,7 +162,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Verified Transaction Foundation | 3/3 | Complete    | 2026-08-26 |
 | 2. Verified Archive Shelf & Manual Freeing | 3/3 | Complete    | 2026-08-26 |
-| 3. Guarded Restore & Instrument Recovery | 1/3 | In Progress|  |
+| 3. Guarded Restore & Instrument Recovery | 2/3 | In Progress|  |
 | 4. Split Review & Confirmed Intent | 0/TBD | Not started | - |
 | 5. Validated Split-Half Archives | 0/TBD | Not started | - |
 | 6. Hardware-Gated Automatic Clearing | 0/TBD | Not started | - |
