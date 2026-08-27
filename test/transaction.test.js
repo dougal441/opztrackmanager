@@ -195,6 +195,27 @@ test('split review is deterministic, explicitly confirmed, and source immutable'
   assert.equal(stale.status, 409);
 });
 
+test('confirmed split synthesis is deterministic, parent-bound, and repairs chains', t => {
+  const parent = fs.readFileSync(FIXTURE);
+  const parsed = parseProject(parent);
+  const selected = parsed.usedPatterns.slice(0, 2);
+  const before = crypto.createHash('sha256').update(parent).digest('hex');
+  const first = subject.synthesizeSplitProject(parent, selected);
+  const second = subject.synthesizeSplitProject(parent, selected);
+  assert.ok(first.equals(second));
+  assert.equal(crypto.createHash('sha256').update(parent).digest('hex'), before);
+  const output = parseProject(first);
+  assert.deepEqual(output.usedPatterns, selected.slice().sort((a, b) => a - b));
+  assert.equal(output.chains.every(chain => chain.patterns.every(pattern => selected.includes(pattern))), true);
+  assert.ok(first.subarray(572 + 2 * 21392, 572 + 3 * 21392).every(byte => byte === 0));
+});
+
+test('split archive acceptance stays pending without exact five-outcome evidence', t => {
+  assert.equal(subject.acceptanceValid(null, 'a'.repeat(64)), false);
+  assert.equal(subject.acceptanceValid({ version: 1, projectSha256: 'a'.repeat(64), eject: true,
+    reconnect: true, rejection: true, playback: true, recovery: false, recorded: '2026-08-25T12:00:00.000Z' }, 'a'.repeat(64)), false);
+});
+
 test('archive classification keeps manifest verification completeness and unicode metadata separate', t => {
   const { libraryRoot } = tempRoots(t);
   const fixture = fs.readFileSync(FIXTURE);

@@ -580,7 +580,8 @@ function detailHtml(s) {
 }
 function splitReviewHtml(s) {
   const review = s.splitReview;
-  if (!review || !review.suggested || review.confirmed) return '';
+  if (!review || !review.suggested) return '';
+  if (review.confirmed) return '<section class="splitReview" aria-label="confirmed split archive actions" onclick="event.stopPropagation()"><h3>confirmed split intent</h3><p class="splitEvidence">Archive either half as a verified local bundle. Restore remains locked until sacrificial-device acceptance.</p><div class="splitHalves">' + review.confirmed.halves.map((half, i) => '<button class="btn acc" onclick="archiveSplit(' + s.slot + ',' + i + ')">archive ' + esc(half.name) + '</button>').join(' ') + '</div></section>';
   const local = splitReviewState.get(s.slot) || { names: ['', ''], memberships: review.memberships.map(p => p.slice()) };
   const evidence = review.evidence;
   const chainText = evidence.chains.map(c => 'chain ' + (c.index + 1) + ': ' + c.patterns.map(p => p + 1).join(', ')).join(' · ');
@@ -598,6 +599,15 @@ function splitReviewHtml(s) {
       'oninput="updateSplit(' + s.slot + ',' + i + ',\'patterns\',this.value)"></div>').join('') +
     '</div><div style="margin-top:10px"><button class="btn acc" onclick="confirmSplit(' + s.slot + ')">confirm split intent</button> ' +
     '<button class="btn ghost" onclick="rejectSplit(' + s.slot + ')">reject</button></div></section>';
+}
+async function archiveSplit(slot, half) {
+  const s = STATE.slots.find(item => item.slot === slot);
+  if (!s || !s.splitReview.confirmed) return;
+  await runMutation('archive split half', async () => {
+    const result = await api('/api/split/archive', { parentHash: s.sha256, half });
+    await load(); setTab('archives');
+    toast(result.restoreEligible ? 'verified split archive accepted' : 'verified split archive saved · hardware acceptance pending');
+  });
 }
 function updateSplit(slot, index, key, value) {
   const current = splitReviewState.get(slot) || { names: ['', ''], memberships: [[], []] };
@@ -706,6 +716,7 @@ function renderArchives() {
     const target = restore && slotFacts.find(slot => slot.slot === restore.slot);
     const targetName = target && target.meta && target.meta.name || 'untitled';
     const targetReady = Boolean(target && target.sha256 && target.sourceToken && item.restoreEligible && item.archiveRevision);
+    const splitStatus = item.split ? '<p><b>Split archive:</b> ' + esc(item.restoreEligible ? 'hardware accepted' : (item.restoreReason || 'pending sacrificial-device acceptance')) + '</p>' : '';
     const restoreOptions = '<option value="">choose a slot…</option>' + slotFacts.map(slot =>
       '<option value="' + slot.slot + '"' + (restore && restore.slot === slot.slot ? ' selected' : '') + '>slot ' + String(slot.slot).padStart(2, '0') + '</option>').join('');
     const targetPreview = target ? (targetReady
@@ -773,7 +784,7 @@ function renderArchives() {
       '<section class="evidenceGroup"><h3>Portability</h3>' + snippetEvidence + '<p><b>Whole grid:</b> ' +
       (item.samplepacks.captured ? 'captured and verified' : 'not captured') + '</p><p><b>Files:</b> ' + item.samplepacks.summary.fileCount +
       ' · <b>Total bytes:</b> ' + item.samplepacks.summary.totalBytes + '</p><p class="evidenceValue">' + esc(trackText) + '</p>' + fileEvidence + '</section>' +
-      '<section class="evidenceGroup"><h3>Provenance and action</h3><p><b>Source:</b> ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
+      '<section class="evidenceGroup"><h3>Provenance and action</h3>' + splitStatus + '<p><b>Source:</b> ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
       '</p><p><b>Source slot:</b> ' + esc(String(item.source.slot).padStart(2, '0')) + '</p><p><b>Created:</b> <time datetime="' + attr(item.created) + '">' +
       esc(new Date(item.created).toLocaleString()) + '</time></p>' + manualAction + '</section>' + restoreAction + checklist +
       '</div></details>';

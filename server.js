@@ -11,7 +11,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 const { execSync } = require('child_process');
-const { parseProject, parseNotes, parseTrackChunks } = require('./parser.js');
+const { parseProject, parseNotes, parseTrackChunks, PATTERN_BASE, PATTERN_SIZE } = require('./parser.js');
 const { aifToWav, packInfo } = require('./aif.js');
 
 const ROOT = __dirname;
@@ -182,6 +182,44 @@ function splitEvidence(parsed, parentHash) {
     },
   };
 }
+function synthesizeSplitProject(parent, patterns) {
+  if (!Buffer.isBuffer(parent) || !Array.isArray(patterns) || !patterns.length
+      || patterns.some(p => !Number.isInteger(p) || p < 0 || p > 15)) {
+    throw requestError(400, 'INVALID_SPLIT_ARCHIVE', 'A non-empty valid pattern membership is required.');
+  }
+  const selected = new Set(patterns);
+  const output = Buffer.from(parent);
+  for (let p = 0; p < 16; p++) {
+    if (!selected.has(p)) output.fill(0, PATTERN_BASE + p * PATTERN_SIZE, PATTERN_BASE + (p + 1) * PATTERN_SIZE);
+  }
+  // D-01/D-02: retain original indexes, remove omitted references, and pad deterministically.
+  for (let c = 0; c < 16; c++) {
+    const base = 4 + c * 32;
+    const kept = [];
+    for (let i = 0; i < 32; i++) {
+      const value = parent[base + i];
+      if (value === 0xff) break;
+      if (value <= 15 && selected.has(value)) kept.push(value);
+    }
+    output.fill(0xff, base, base + 32);
+    kept.forEach((value, i) => { output[base + i] = value; });
+  }
+  const parsed = parseProject(output);
+  const retained = parsed.usedPatterns.slice().sort((a, b) => a - b);
+  const expected = [...selected].sort((a, b) => a - b);
+  if (JSON.stringify(retained) !== JSON.stringify(expected)
+      || parsed.chains.some(chain => chain.patterns.some(p => !selected.has(p)))) {
+    throw archiveError('ARCHIVE_SYNTHESIS_INVALID', 'Synthesized project did not retain the confirmed patterns exactly.');
+  }
+  return output;
+}
+function acceptanceValid(acceptance, projectSha256) {
+  return isPlainObject(acceptance) && hasExactKeys(acceptance,
+    ['version', 'projectSha256', 'eject', 'reconnect', 'rejection', 'playback', 'recovery', 'recorded'])
+    && acceptance.version === 1 && acceptance.projectSha256 === projectSha256
+    && ['eject', 'reconnect', 'rejection', 'playback', 'recovery'].every(key => acceptance[key] === true)
+    && isIsoTime(acceptance.recorded);
+}
 function sanitizeSplitName(value, field) {
   validateString(value, field, 80, false);
   const name = value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
@@ -227,6 +265,28 @@ function validateSplitIntent(body, sourceResolver = getSource) {
     throw requestError(400, 'INVALID_SPLIT_INTENT', 'Split memberships must cover each occupied pattern exactly once.');
   }
   return { parentHash: body.parentHash.toLowerCase(), halves, slot: found.slot };
+}
+function validateSplitArchiveRequest(body) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['parentHash', 'half'])) {
+    throw requestError(400, 'INVALID_SPLIT_ARCHIVE', 'Split archive requires the confirmed parent and half number.');
+  }
+  if (typeof body.parentHash !== 'string' || !/^[a-f0-9]{64}$/i.test(body.parentHash)
+      || !Number.isInteger(body.half) || body.half < 0 || body.half > 1) {
+    throw requestError(400, 'INVALID_SPLIT_ARCHIVE', 'Split archive selection is invalid.');
+  }
+  return { parentHash: body.parentHash.toLowerCase(), half: body.half };
+}
+function validateAcceptanceRequest(body) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['file', 'auto', 'outcomes'])) {
+    throw requestError(400, 'INVALID_ACCEPTANCE', 'Acceptance requires one archive and five outcomes.');
+  }
+  validateBundleId(body.file); validateBoolean(body.auto, 'auto');
+  if (body.auto || !isPlainObject(body.outcomes) || !hasExactKeys(body.outcomes,
+    ['eject', 'reconnect', 'rejection', 'playback', 'recovery'])
+      || Object.values(body.outcomes).some(value => value !== true)) {
+    throw requestError(400, 'INVALID_ACCEPTANCE', 'All five mounted-device outcomes must be confirmed.');
+  }
+  return body;
 }
 
 // ---------- instruments ----------
@@ -364,7 +424,8 @@ function validateArchiveInfo(info) {
   if (!required.every(key => Object.hasOwn(info, key))) {
     throw Object.assign(new Error('partial manifest'), { archiveCode: 'ARCHIVE_PARTIAL' });
   }
-  if (!hasExactKeys(info, required) || !isIsoTime(info.created)
+  const allowedKeys = required.concat(['split', 'acceptance']);
+  if (!Object.keys(info).every(key => allowedKeys.includes(key)) || !required.every(key => Object.hasOwn(info, key)) || !isIsoTime(info.created)
       || !hasExactKeys(info.source, ['device', 'label', 'slot'])
       || typeof info.source.device !== 'boolean'
       || typeof info.source.label !== 'string' || !info.source.label || info.source.label.length > 80 || info.source.label.includes('\0')
@@ -397,6 +458,24 @@ function validateArchiveInfo(info) {
       || new Set(info.samplepacks.files.map(item => item.path)).size !== info.samplepacks.files.length
       || (!info.samplepacks.captured && info.samplepacks.files.length !== 0)) {
     throw Object.assign(new Error('invalid sample packs'), { archiveCode: 'ARCHIVE_CORRUPT' });
+  }
+  if (Object.hasOwn(info, 'split')) {
+    if (!hasExactKeys(info.split, ['version', 'parentSha256', 'patterns', 'name'])
+        || info.split.version !== 1 || !/^[a-f0-9]{64}$/.test(info.split.parentSha256)
+        || !Array.isArray(info.split.patterns) || !info.split.patterns.length
+        || info.split.patterns.some(p => !Number.isInteger(p) || p < 0 || p > 15)
+        || typeof info.split.name !== 'string' || !info.split.name.length || info.split.name.length > 80) {
+      throw Object.assign(new Error('invalid split provenance'), { archiveCode: 'ARCHIVE_CORRUPT' });
+    }
+    if (Object.hasOwn(info, 'acceptance') && info.acceptance !== null
+        && (!hasExactKeys(info.acceptance, ['version', 'projectSha256', 'eject', 'reconnect', 'rejection', 'playback', 'recovery', 'recorded'])
+          || info.acceptance.version !== 1 || !/^[a-f0-9]{64}$/.test(info.acceptance.projectSha256)
+          || ['eject', 'reconnect', 'rejection', 'playback', 'recovery'].some(k => typeof info.acceptance[k] !== 'boolean')
+          || !isIsoTime(info.acceptance.recorded))) {
+      throw Object.assign(new Error('invalid acceptance evidence'), { archiveCode: 'ARCHIVE_CORRUPT' });
+    }
+  } else if (Object.hasOwn(info, 'acceptance')) {
+    throw Object.assign(new Error('acceptance without split provenance'), { archiveCode: 'ARCHIVE_CORRUPT' });
   }
   return info;
 }
@@ -436,10 +515,13 @@ function classifyArchive(dir) {
       catch { return archiveDiagnostic('ARCHIVE_CORRUPT', 'corrupt', safe); }
     }
     const complete = info.samplepacks.captured && ['included', 'unlinked'].includes(info.snippet.status);
+    const split = info.split || null;
+    const restoreEligible = !split || acceptanceValid(info.acceptance, info.project.sha256);
     const result = {
       verified: true,
       complete,
-      restoreEligible: true,
+      restoreEligible,
+      ...(split ? { split, acceptance: info.acceptance || null, restoreReason: restoreEligible ? 'hardware accepted' : 'pending sacrificial-device acceptance' } : {}),
       manualFreeEligible: false,
       hash: hashFile(project),
       schemaVersion: info.schemaVersion,
@@ -983,7 +1065,8 @@ function archiveCapturedProject(captured, options) {
   const draft = fs.mkdtempSync(path.join(libraryRoot, '.partial-'));
   try {
     const storedPath = path.join(draft, 'song.opz');
-    fs.writeFileSync(storedPath, captured.buffer, { flush: true });
+    const archiveBuffer = options.archiveBuffer || captured.buffer;
+    fs.writeFileSync(storedPath, archiveBuffer, { flush: true });
     let manifest = null;
     let samplepacks = null;
     if (options.deep) {
@@ -1010,7 +1093,7 @@ function archiveCapturedProject(captured, options) {
     }
     if (typeof options.beforeVerify === 'function') options.beforeVerify(storedPath, draft);
     const stored = fs.readFileSync(storedPath);
-    if (stored.length !== captured.bytes || !stored.equals(captured.buffer)) {
+    if (stored.length !== archiveBuffer.length || !stored.equals(archiveBuffer)) {
       throw archiveError('ARCHIVE_BYTES_MISMATCH', 'Stored project does not match the captured source.');
     }
     try { parseProject(stored); }
@@ -1032,6 +1115,8 @@ function archiveCapturedProject(captured, options) {
       snippet,
       samplepacks: { captured: options.deep, files: manifest || [] },
     };
+    if (options.split) info.split = options.split;
+    if (options.acceptance !== undefined) info.acceptance = options.acceptance;
     fs.writeFileSync(path.join(draft, 'info.json'), JSON.stringify(info, null, 2), { flush: true });
     if (typeof options.beforePublish === 'function') options.beforePublish(storedPath, draft);
     const classification = classifyArchive(draft);
@@ -1044,7 +1129,8 @@ function archiveCapturedProject(captured, options) {
     assertCapturedSource(captured);
     const finalName = `${stamp()}_${name}_${path.basename(draft).slice(-6)}`;
     fs.renameSync(draft, path.join(libraryRoot, finalName));
-    return { ok: true, verified: true, complete: classification.complete, file: finalName,
+    return { ok: true, verified: true, complete: classification.complete, restoreEligible: classification.restoreEligible,
+      restoreReason: classification.restoreReason, file: finalName,
       source: publicSource(captured), evidence: project, guidance: sourceGuidance(captured) };
   } catch (error) {
     const failure = /^(SOURCE_|ARCHIVE_)/.test(error.code || '')
@@ -1370,6 +1456,54 @@ const server = http.createServer(async (req, res) => {
       saveMeta(meta, metaFile);
       return json(res, 200, { ok: true, split: intent });
     }
+    if (p === '/api/split/archive' && req.method === 'POST') {
+      const body = validateSplitArchiveRequest(await readBody(req));
+      return await withMutation('archive confirmed split half', async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        const meta = loadMeta(testHooks.metaFile || META_FILE);
+        const intent = meta.splits && meta.splits[body.parentHash];
+        if (!intent || intent.parentHash !== body.parentHash || !Array.isArray(intent.halves) || intent.halves.length !== 2) {
+          throw transactionError('SPLIT_INTENT_REQUIRED', 'This split is not currently confirmed.', 'Review and confirm the split again.', 409);
+        }
+        let captured = null;
+        for (let slot = 1; slot <= 10; slot++) {
+          try {
+            const candidate = (testHooks.captureSource || captureSource)(slot, source);
+            if (candidate.sha256 === body.parentHash) { captured = candidate; break; }
+          } catch {}
+        }
+        if (!captured) throw transactionError('SPLIT_PARENT_STALE', 'The parent project changed or is unavailable.', 'Refresh the slot and review the split again.', 409);
+        const half = intent.halves[body.half];
+        const archiveBuffer = synthesizeSplitProject(captured.buffer, half.patterns);
+        mutation.source = publicSource(captured);
+        const result = archiveCapturedProject(captured, {
+          libraryRoot: testHooks.libraryRoot || LIB_DIR, archiveBuffer, deep: false,
+          name: half.name, operation: mutation.operation,
+          metadata: { name: half.name },
+          split: { version: 1, parentSha256: body.parentHash, patterns: half.patterns.slice(), name: half.name },
+          acceptance: null,
+        });
+        return json(res, 200, { ...result, parentHash: body.parentHash, half: body.half });
+      });
+    }
+    if (p === '/api/split/acceptance' && req.method === 'POST') {
+      const body = validateAcceptanceRequest(await readBody(req));
+      return await withMutation('record split hardware acceptance', async () => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source || source.device !== true) throw transactionError('HARDWARE_REQUIRED', 'A mounted OP-Z is required for acceptance.', 'Connect a real OP-Z in Content Mode, then retry.', 409);
+        const bundle = findBundle(body.file, false, testHooks.libraryRoot || LIB_DIR, Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
+        if (!bundle.classification.split) throw requestError(400, 'INVALID_ACCEPTANCE', 'Only synthesized split archives require acceptance.');
+        const acceptance = { version: 1, projectSha256: bundle.classification.project.sha256, ...body.outcomes, recorded: new Date().toISOString() };
+        const infoPath = path.join(bundle.dir, 'info.json');
+        const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+        info.acceptance = acceptance;
+        saveJsonAtomic(infoPath, info);
+        const checked = classifyArchive(bundle.dir);
+        if (!checked.restoreEligible) throw archiveError('ARCHIVE_ACCEPTANCE_INVALID', 'Hardware acceptance could not be verified.');
+        return json(res, 200, { ok: true, file: body.file, restoreEligible: true, acceptance });
+      });
+    }
     if (p === '/api/meta' && req.method === 'POST') {
       const body = await readBody(req);
       if (!isPlainObject(body)) throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
@@ -1437,6 +1571,8 @@ const server = http.createServer(async (req, res) => {
           Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
         if (bundle.archiveRevision !== body.archiveRevision) throw transactionError('RESTORE_ARCHIVE_STALE', 'The reviewed archive changed.',
           'Archive changed. Refresh before restoring.', 409);
+        if (!bundle.classification.restoreEligible) throw transactionError('SPLIT_RESTORE_PENDING', 'This synthesized split archive is not restore-eligible yet.',
+          'Complete the five-outcome sacrificial-device acceptance and refresh before restoring.', 409);
         assertCapturedSource(captured);
         const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
         fs.mkdirSync(autoRoot, { recursive: true });
@@ -1821,6 +1957,10 @@ module.exports = {
   validateMetadataFields,
   splitEvidence,
   validateSplitIntent,
+  validateSplitArchiveRequest,
+  validateAcceptanceRequest,
+  synthesizeSplitProject,
+  acceptanceValid,
   validateRestore,
   validateSwap,
   loadMeta,
