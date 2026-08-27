@@ -29,7 +29,7 @@ const SOURCE_TOKEN_SECRET = crypto.randomBytes(32);
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
 const META_TRACKS = ['kick', 'snare', 'hihat', 'sample', 'bass', 'lead', 'arp', 'chord'];
 const mutationRouteInventory = Object.freeze({
-  enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
+  enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
   unavailable: [
     '/api/clear-slot',
     '/api/op1fun/download',
@@ -739,6 +739,18 @@ function validateRestore(body) {
   validateSlot(body.slot);
   return body;
 }
+function validateRestoreGrid(body) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['file', 'auto', 'archiveRevision', 'sourceToken'])) {
+    throw requestError(400, 'INVALID_RESTORE_GRID_REQUEST', 'Grid restore request must contain one reviewed archive and source.');
+  }
+  validateBundleId(body.file); validateBoolean(body.auto, 'auto');
+  validateString(body.archiveRevision, 'archiveRevision', 64, false);
+  validateString(body.sourceToken, 'sourceToken', 64, false);
+  if (!/^[a-f0-9]{64}$/i.test(body.archiveRevision) || !/^[a-f0-9]{64}$/i.test(body.sourceToken)) {
+    throw requestError(400, 'INVALID_RESTORE_GRID_REQUEST', 'Grid restore evidence is invalid.');
+  }
+  return body;
+}
 function validateSwap(body) {
   if (!isPlainObject(body) || !hasExactKeys(body, ['a', 'b', 'expectedA', 'expectedB', 'sourceToken'])) {
     throw requestError(400, 'INVALID_SWAP_REQUEST', 'Swap request must contain two reviewed slots.');
@@ -1109,6 +1121,22 @@ function instrumentRecoveryError(error, recovery, captured, backup, gridRoot) {
   error.recovery = recoveryReceipt(recovery.file, state);
   return error;
 }
+function gridRestoreError(error, recovery, captured, backup, gridRoot) {
+  let state = 'recovery_required';
+  try {
+    assertCapturedRoot(captured);
+    restoreGrid(gridRoot, backup);
+    if (manifestMatches(gridRoot, gridManifest(backup))) state = 'rolled_back';
+  } catch {}
+  error.status = Number.isInteger(error.status) ? error.status : 500;
+  error.code = /^[A-Z][A-Z0-9_]+$/.test(error.code || '') ? error.code : 'GRID_RESTORE_FAILED';
+  error.message = 'Whole-grid restore did not complete.';
+  error.guidance = state === 'rolled_back'
+    ? 'The original instrument grid was restored and verified. The recovery archive remains retained.'
+    : 'Recovery is required. Reconnect the source and restore the retained recovery archive.';
+  error.recovery = recoveryReceipt(recovery.file, state);
+  return error;
+}
 
 function manualFreeInspection(file, options = {}) {
   const id = validateBundleId(file);
@@ -1407,6 +1435,58 @@ const server = http.createServer(async (req, res) => {
         } catch (error) {
           if (!started) throw error;
           throw recoveryError(error, recoveries, captures);
+        }
+      });
+    }
+    if (p === '/api/instruments/restore-grid' && req.method === 'POST') {
+      const body = validateRestoreGrid(await readBody(req));
+      return await withMutation('restore whole instrument grid', async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        const captured = (testHooks.captureSource || captureSource)(1, source);
+        mutation.source = publicSource(captured);
+        if (captured.sourceToken !== body.sourceToken) throw transactionError('RESTORE_SOURCE_STALE', 'The selected source changed after preview.', 'Reconnect the original source and refresh before restoring.', 409);
+        assertCapturedSource(captured);
+        const bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR,
+          Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
+        if (bundle.archiveRevision !== body.archiveRevision || !bundle.classification.verified || !bundle.classification.samplepacks.captured) {
+          throw transactionError('RESTORE_ARCHIVE_STALE', 'The reviewed archive is no longer a complete grid archive.', 'Archive changed. Refresh before restoring.', 409);
+        }
+        const archiveRoot = resolveChild(body.auto ? (Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR) : (testHooks.libraryRoot || LIB_DIR), body.file);
+        const incoming = path.join(archiveRoot, 'samplepacks');
+        if (!fs.lstatSync(incoming).isDirectory() || !manifestMatches(incoming, bundle.classification.samplepacks.files)) {
+          throw transactionError('RESTORE_ARCHIVE_STALE', 'The archived instrument grid could not be verified.', 'Archive changed. Refresh before restoring.', 409);
+        }
+        assertCapturedRoot(captured);
+        const grid = fs.realpathSync(path.join(captured.root, 'samplepacks'));
+        const before = gridManifest(grid);
+        if (!before) throw sourceError('SOURCE_UNAVAILABLE', 'Sample packs are unavailable.');
+        const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
+        fs.mkdirSync(autoRoot, { recursive: true });
+        const recovery = archiveCapturedProject(captured, { libraryRoot: autoRoot, name: 'recovery-instruments-grid', deep: true, operation: mutation.operation });
+        const stage = path.join(captured.root, `.samplepacks-stage-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
+        const retained = path.join(captured.root, `.samplepacks-retained-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
+        let started = false;
+        try {
+          fs.mkdirSync(stage, { recursive: false });
+          copyDir(incoming, stage);
+          if (!manifestMatches(stage, bundle.classification.samplepacks.files)) throw transactionError('GRID_STAGE_VERIFY_FAILED', 'Archived instrument grid could not be staged safely.', 'The live instrument grid was not changed.', 500);
+          assertCapturedRoot(captured);
+          if (!manifestMatches(grid, before)) throw transactionError('GRID_SOURCE_CHANGED', 'The live instrument grid changed during preparation.', 'Refresh and retry. The live instrument grid was not changed.', 409);
+          if (typeof testHooks.beforeGridRename === 'function') testHooks.beforeGridRename();
+          fs.renameSync(grid, retained); started = true;
+          if (typeof testHooks.afterGridFirstRename === 'function') testHooks.afterGridFirstRename();
+          fs.renameSync(stage, grid);
+          if (typeof testHooks.afterGridSecondRename === 'function') testHooks.afterGridSecondRename();
+          if (!manifestMatches(grid, bundle.classification.samplepacks.files)) throw transactionError('GRID_VERIFY_FAILED', 'Restored instrument grid could not be verified.', 'The recovery archive remains retained.', 500);
+          fs.rmSync(retained, { recursive: true, force: true });
+          return json(res, 200, { ok: true, verified: true, source: publicSource(captured), evidence: { files: bundle.classification.samplepacks.files.length }, recovery: recoveryReceipt(recovery.file, 'retained'), guidance: captured.device ? 'Whole grid was reread and verified on the mounted OP-Z in Content Mode.' : 'Whole grid was reread and verified in the local fixture.' });
+        } catch (error) {
+          if (!started) throw error;
+          throw gridRestoreError(error, recovery, captured, retained, grid);
+        } finally {
+          try { fs.rmSync(stage, { recursive: true, force: true }); } catch {}
+          try { fs.rmSync(retained, { recursive: true, force: true }); } catch {}
         }
       });
     }

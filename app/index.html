@@ -670,9 +670,12 @@ function renderArchives() {
         esc(target.tempo) + ' BPM ' + matrixSvg(target, 136, 'Current step activity matrix for slot ' + target.slot) + '<br>A verified automatic backup will be created before this slot changes.</div>'
       : '<div class="restoreResult" role="alert">Slot ' + esc(String(target.slot).padStart(2, '0')) + ' cannot be read safely. Refresh and review it again.</div>') : '';
     const restoreResult = restore && restore.result ? '<div class="restoreResult" role="alert" tabindex="-1" data-restore-result="' + attr(item.id) + '">' + esc(restore.result) + '</div>' : '';
+    const gridSource = slotFacts.find(slot => slot.sourceToken);
+    const gridReady = Boolean(item.verified && item.samplepacks && item.samplepacks.captured && item.archiveRevision && gridSource && gridSource.sourceToken);
+    const gridAction = '<section class="restoreGroup" aria-label="Whole grid restore"><h3>Instrument grid</h3><p>Restore the complete archived sample-pack grid. Projects do not change.</p><button class="btn" data-mutation="restore-grid" ' + (gridReady ? '' : 'disabled ') + 'onclick="restoreGrid(' + fileArg + ',' + item.auto + ')">restore whole instrument grid</button>' + (restore && restore.gridResult ? '<div class="restoreResult" role="alert" tabindex="-1" data-grid-result="' + attr(item.id) + '">' + esc(restore.gridResult) + '</div>' : '') + '</section>';
     const restoreAction = '<section class="restoreGroup" aria-label="Restore"><h3>Restore</h3><label class="lbl" for="restore-target-' + attr(item.id) + '">restore to slot</label>' +
       '<select id="restore-target-' + attr(item.id) + '" onchange="selectRestoreTarget(' + fileArg + ',' + item.auto + ',this.value)">' + restoreOptions + '</select>' + targetPreview +
-      '<button class="btn live" data-mutation="restore" ' + (targetReady ? '' : 'disabled ') + 'onclick="restoreProject(' + fileArg + ',' + item.auto + ')">restore project</button>' + restoreResult + '</section>';
+      '<button class="btn live" data-mutation="restore" ' + (targetReady ? '' : 'disabled ') + 'onclick="restoreProject(' + fileArg + ',' + item.auto + ')">restore project</button>' + restoreResult + '</section>' + gridAction;
     const manual = manualFreeState.get(item.id);
     const slot = item.source.slot;
     const paddedSlot = String(slot).padStart(2, '0');
@@ -806,6 +809,25 @@ async function restoreProject(file, auto) {
     renderArchives();
   }
   const result = [...document.querySelectorAll('[data-restore-result]')].find(element => element.dataset.restoreResult === file);
+  if (result) result.focus();
+}
+async function restoreGrid(file, auto) {
+  const item = STATE.archiveShelf.verified.find(entry => entry.id === file && entry.auto === auto);
+  const sourceSlot = STATE.slots.find(slot => slot.sourceToken);
+  if (!item || !item.verified || !item.samplepacks.captured || !sourceSlot) return;
+  if (!confirm('Restore the complete archived instrument grid from “' + (item.metadata.name || 'untitled') + '”? Projects do not change. A verified recovery of the current grid will be retained first.')) return;
+  try {
+    await runMutation('protecting and restoring the whole instrument grid …', () => api('/api/instruments/restore-grid', {
+      file, auto, archiveRevision: item.archiveRevision, sourceToken: sourceSlot.sourceToken,
+    }));
+    await load();
+    restoreState.set(file, { ...(restoreState.get(file) || {}), gridResult: 'whole grid restore verified · recovery retained' });
+    renderArchives();
+  } catch (error) {
+    restoreState.set(file, { ...(restoreState.get(file) || {}), gridResult: 'whole grid restore did not complete. ' + (error.guidance || '') + (error.recovery ? ' Recovery ' + error.recovery.id + ' is retained.' : '') });
+    renderArchives();
+  }
+  const result = [...document.querySelectorAll('[data-grid-result]')].find(element => element.dataset.gridResult === file);
   if (result) result.focus();
 }
 async function doSwap() {

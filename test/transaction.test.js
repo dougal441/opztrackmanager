@@ -1238,7 +1238,7 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
     '/api/clear-slot',
     '/api/op1fun/download',
   ];
-  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/clear-slot', '/api/op1fun/download'] });
+  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/clear-slot', '/api/op1fun/download'] });
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
   for (const route of unavailable) {
@@ -1254,6 +1254,39 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
   assert.match(html, /onclick="removePack\(\)"/);
   assert.match(html, /onclick="importPack\(\)"/);
   assert.match(html, /onclick="snapshotInstruments\(\)"/);
+  assert.match(html, /restore whole instrument grid/);
+  assert.match(html, /\/api\/instruments\/restore-grid/);
+});
+
+test('whole-grid restore replaces stale files and retains a verified recovery', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const live = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
+  fs.mkdirSync(live, { recursive: true });
+  fs.writeFileSync(path.join(live, 'kick.aif'), 'archived');
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const archived = await requestJson(subject.server, '/api/backup', { slot: 1, name: 'Grid archive', deep: true });
+  assert.equal(archived.status, 200, JSON.stringify(archived.body));
+  const state = await requestJson(subject.server, '/api/state');
+  const slot = state.body.slots.find(item => item.sourceToken);
+  const shelfItem = state.body.archiveShelf.verified.find(item => item.id === archived.body.file);
+  assert.ok(shelfItem && shelfItem.archiveRevision);
+  fs.writeFileSync(path.join(live, 'stale.engine'), 'remove me');
+  const result = await requestJson(subject.server, '/api/instruments/restore-grid', {
+    file: archived.body.file, auto: false, archiveRevision: shelfItem.archiveRevision,
+    sourceToken: slot.sourceToken,
+  });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.verified, true);
+  assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, result.body.recovery.id)).verified, true);
+  assert.equal(fs.existsSync(path.join(live, 'stale.engine')), false);
+  assert.equal(fs.readFileSync(path.join(live, 'kick.aif'), 'utf8'), 'archived');
+  assert.match(result.body.guidance, /fixture/);
 });
 
 test('instrument move and snapshot retain a verified complete grid recovery', async t => {
@@ -1654,6 +1687,47 @@ test('mounted API archive UAT', { skip: process.env.OPZ_HARDWARE_UAT !== '1' }, 
   const after = fs.readFileSync(sourcePath);
   assert.equal(after.length, before.length);
   assert.equal(crypto.createHash('sha256').update(after).digest('hex'), beforeSha256);
+});
+
+test('mounted restore and mounted grid UAT preserve same-byte Content Mode state', {
+  skip: process.env.OPZ_HARDWARE_UAT !== '1',
+}, async t => {
+  const mountedRoot = fs.readdirSync('/Volumes').map(name => path.join('/Volumes', name)).find(root =>
+    fs.existsSync(path.join(root, 'projects', 'project01.opz')) && fs.existsSync(path.join(root, 'samplepacks')));
+  assert.ok(mountedRoot, 'a real OP-Z Content Mode source with project and samplepacks is required');
+  const projectPath = path.join(mountedRoot, 'projects', 'project01.opz');
+  const initialTree = snapshotRegularFiles(mountedRoot);
+  const initialProject = fs.readFileSync(projectPath);
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-mounted-uat-'));
+  const libraryRoot = path.join(base, 'library'), autoRoot = path.join(base, 'auto');
+  fs.mkdirSync(libraryRoot, { recursive: true }); fs.mkdirSync(autoRoot, { recursive: true });
+  const previousRoot = process.env.OPZ_ROOT;
+  process.env.OPZ_ROOT = mountedRoot;
+  subject.testHooks.sourceResolver = () => ({ root: mountedRoot, path: path.join(mountedRoot, 'projects'), device: true, label: path.basename(mountedRoot) });
+  subject.testHooks.libraryRoot = libraryRoot; subject.testHooks.autoRoot = autoRoot;
+  t.after(() => {
+    if (previousRoot === undefined) delete process.env.OPZ_ROOT; else process.env.OPZ_ROOT = previousRoot;
+    fs.rmSync(base, { recursive: true, force: true });
+    for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key];
+    if (subject.server.listening) subject.server.close();
+  });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  try {
+    const archived = await requestJson(subject.server, '/api/backup', { slot: 1, name: 'mounted same-byte UAT', deep: true });
+    assert.equal(archived.status, 200, JSON.stringify(archived.body));
+    const state = await requestJson(subject.server, '/api/state');
+    const slot = state.body.slots.find(item => item.slot === 1), shelf = state.body.archiveShelf.verified.find(item => item.id === archived.body.file);
+    assert.ok(slot && shelf && shelf.archiveRevision && slot.sourceToken);
+    const restored = await requestJson(subject.server, '/api/restore', { file: archived.body.file, auto: false, archiveRevision: shelf.archiveRevision, slot: 1, targetFingerprint: { sha256: slot.sha256, bytes: slot.bytes }, sourceToken: slot.sourceToken });
+    assert.equal(restored.status, 200, JSON.stringify(restored.body)); assert.equal(restored.body.source.device, true); assert.ok(restored.body.recovery.id);
+    const grid = await requestJson(subject.server, '/api/instruments/restore-grid', { file: archived.body.file, auto: false, archiveRevision: shelf.archiveRevision, sourceToken: slot.sourceToken });
+    assert.equal(grid.status, 200, JSON.stringify(grid.body)); assert.equal(grid.body.source.device, true); assert.ok(grid.body.recovery.id);
+    assert.deepEqual(snapshotRegularFiles(mountedRoot).map(item => [item.path, item.sha256, item.bytes, item.mode]), initialTree.map(item => [item.path, item.sha256, item.bytes, item.mode]));
+    assert.ok(fs.readFileSync(projectPath).equals(initialProject));
+    process.stdout.write('mounted UAT evidence digest ' + crypto.createHash('sha256').update(JSON.stringify(snapshotRegularFiles(mountedRoot))).digest('hex') + '\n');
+  } finally {
+    if (!fs.readFileSync(projectPath).equals(initialProject)) fs.writeFileSync(projectPath, initialProject, { flush: true });
+  }
 });
 
 test('manual free mounted UAT preserves every regular file beneath the OP-Z root', {
