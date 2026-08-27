@@ -69,6 +69,12 @@
   textarea { width: 100%; font: 13px/1.6 var(--sans); color: var(--ink); background: var(--surface);
              border: 1px solid var(--line2); border-radius: 5px; padding: 9px 11px;
              resize: vertical; min-height: 64px; }
+  .splitReview { margin-top: 16px; padding: 12px; border: 1px solid var(--line2); border-left: 3px solid var(--accent); background: var(--surface); }
+  .splitReview .splitEvidence { color: var(--dim); font-size: 12px; margin: 6px 0 10px; }
+  .splitHalves { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .splitHalf { display: grid; gap: 6px; }
+  .splitHalf label { font: 10px var(--mono); text-transform: uppercase; color: var(--dim); }
+  .splitHalf input, .splitHalf textarea { width: 100%; }
   .lbl { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .14em;
          color: var(--dim); margin: 14px 0 6px; }
   .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -326,6 +332,7 @@ let STATE = null, AIFS = null, SETTINGS = {}, mutationBusy = null, lastStatus = 
 let shelfLoading = true, shelfError = '';
 const manualFreeState = new Map();
 const restoreState = new Map();
+const splitReviewState = new Map();
 let expanded = JSON.parse(localStorage.getItem('opz.expanded') || 'null');
 let tab = localStorage.getItem('opz.tab') || 'songs';
 let selCell = null, pkPage = 1;
@@ -568,8 +575,45 @@ function detailHtml(s) {
         'onchange="saveMeta(\'' + s.hash + '\',{notes:this.value})">' + esc(s.meta && s.meta.notes || '') + '</textarea>' +
       '<div class="lbl">library</div>' +
       '<button class="btn acc" data-mutation="archive" onclick="backup(' + s.slot + ')">archive complete song</button>' +
+      splitReviewHtml(s) +
     '</div>';
 }
+function splitReviewHtml(s) {
+  const review = s.splitReview;
+  if (!review || !review.suggested || review.confirmed) return '';
+  const local = splitReviewState.get(s.slot) || { names: ['', ''], memberships: review.memberships.map(p => p.slice()) };
+  const evidence = review.evidence;
+  const chainText = evidence.chains.map(c => 'chain ' + (c.index + 1) + ': ' + c.patterns.map(p => p + 1).join(', ')).join(' · ');
+  const clusterText = evidence.patternClusters.map(c => c.patterns.map(p => p + 1).join(', ')).join(' / ');
+  return '<section class="splitReview" aria-labelledby="split-title-' + s.slot + '" onclick="event.stopPropagation()">' +
+    '<h3 id="split-title-' + s.slot + '">possible two-song split · review</h3>' +
+    '<p class="splitEvidence">Evidence: ' + esc(chainText) + '. Pattern clusters: ' + esc(clusterText) + '. ' +
+      (evidence.differingProfiles ? 'Track profiles differ.' : 'Track profiles provide limited separation.') + '</p>' +
+    '<div class="splitHalves">' + [0, 1].map(i =>
+      '<div class="splitHalf"><label for="split-name-' + s.slot + '-' + i + '">half ' + (i + 1) + ' name</label>' +
+      '<input id="split-name-' + s.slot + '-' + i + '" value="' + attr(local.names[i] || '') + '" maxlength="80" placeholder="name before confirming" ' +
+      'oninput="updateSplit(' + s.slot + ',' + i + ',\'name\',this.value)">' +
+      '<label for="split-patterns-' + s.slot + '-' + i + '">patterns (1–16, comma separated)</label>' +
+      '<input id="split-patterns-' + s.slot + '-' + i + '" value="' + attr(local.memberships[i].map(p => p + 1).join(', ')) + '" inputmode="numeric" ' +
+      'oninput="updateSplit(' + s.slot + ',' + i + ',\'patterns\',this.value)"></div>').join('') +
+    '</div><div style="margin-top:10px"><button class="btn acc" onclick="confirmSplit(' + s.slot + ')">confirm split intent</button> ' +
+    '<button class="btn ghost" onclick="rejectSplit(' + s.slot + ')">reject</button></div></section>';
+}
+function updateSplit(slot, index, key, value) {
+  const current = splitReviewState.get(slot) || { names: ['', ''], memberships: [[], []] };
+  if (key === 'name') current.names[index] = value;
+  else current.memberships[index] = value.split(',').map(v => Number(v.trim()) - 1).filter(Number.isInteger);
+  splitReviewState.set(slot, current);
+}
+async function confirmSplit(slot) {
+  const s = STATE.slots.find(item => item.slot === slot), local = splitReviewState.get(slot);
+  if (!s || !local) return toast('review both halves before confirming');
+  try {
+    await api('/api/split/confirm', { parentHash: s.sha256, halves: local.memberships.map((patterns, i) => ({ name: local.names[i], patterns })) });
+    splitReviewState.delete(slot); toast('split intent confirmed'); await load();
+  } catch {}
+}
+function rejectSplit(slot) { splitReviewState.delete(slot); toast('split suggestion rejected'); render(); }
 function toggle(slot) {
   stopSketch();
   expanded = expanded === slot ? null : slot;

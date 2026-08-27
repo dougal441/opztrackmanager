@@ -133,6 +133,8 @@ function scanSlots(meta, sourceResolver = getSource) {
       const hash = hashFile(buf);
       const parsed = parseProject(buf);
       const captured = captureSource(i, src);
+      const splitReview = splitEvidence(parsed, captured.sha256);
+      if (meta.splits && meta.splits[captured.sha256]) splitReview.confirmed = meta.splits[captured.sha256];
       slots.push({
         slot: i, file: `project${nn}.opz`, hash,
         sha256: captured.sha256, bytes: captured.bytes, sourceToken: captured.sourceToken,
@@ -140,6 +142,7 @@ function scanSlots(meta, sourceResolver = getSource) {
         tempo: parsed.tempo, swing: parsed.swing, mixer: parsed.mixer,
         chains: parsed.chains, usedPatterns: parsed.usedPatterns,
         patterns: parsed.patterns.filter(p => p.noteCount > 0),
+        splitReview,
         meta: meta.songs[hash] || null,
       });
     } catch (e) {
@@ -147,6 +150,83 @@ function scanSlots(meta, sourceResolver = getSource) {
     }
   }
   return { source: { device: src.device, label: src.label }, slots };
+}
+
+// Evidence only: saved disjoint chains lead; separated pattern and track profiles support review.
+function splitEvidence(parsed, parentHash) {
+  const used = parsed.usedPatterns.slice().sort((a, b) => a - b);
+  const usedSet = new Set(used);
+  const groups = parsed.chains.map(chain => [...new Set(chain.patterns.filter(p => usedSet.has(p)))])
+    .filter(group => group.length).filter((group, i, all) => all.findIndex(other => JSON.stringify(other) === JSON.stringify(group)) === i)
+    .sort((a, b) => a[0] - b[0]);
+  const disjoint = groups.length === 2 && groups.every((group, i) => groups.slice(i + 1).every(other => !group.some(p => other.includes(p))));
+  const memberships = disjoint ? groups.slice(0, 2).map(group => group.slice().sort((a, b) => a - b)) : [];
+  const byPattern = new Map(parsed.patterns.map(pattern => [pattern.index, pattern]));
+  const profiles = used.map(index => {
+    const pattern = byPattern.get(index) || {};
+    return { pattern: index, tracks: Object.keys(pattern.trackNotes || {}).sort() };
+  });
+  const clusters = memberships.map(patterns => ({ patterns, noteCount: patterns.reduce((n, p) => n + ((byPattern.get(p) || {}).noteCount || 0), 0) }));
+  const profileSets = clusters.map(cluster => new Set(cluster.patterns.flatMap(p => (byPattern.get(p) || {}).activeTracks || [])));
+  const differingProfiles = profileSets.length === 2 && [...profileSets[0]].some(track => !profileSets[1].has(track))
+    || profileSets.length === 2 && [...profileSets[1]].some(track => !profileSets[0].has(track));
+  return {
+    suggested: Boolean(disjoint && memberships[0].length && memberships[1].length),
+    parentHash,
+    memberships,
+    evidence: {
+      chains: parsed.chains.map(chain => ({ index: chain.index, patterns: chain.patterns.slice() })),
+      patternClusters: clusters,
+      trackProfiles: profiles,
+      differingProfiles: Boolean(differingProfiles),
+    },
+  };
+}
+function sanitizeSplitName(value, field) {
+  validateString(value, field, 80, false);
+  const name = value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  if (!name) throw requestError(400, 'INVALID_SPLIT_INTENT', `${field} must contain a name.`);
+  return name;
+}
+function validateSplitIntent(body, sourceResolver = getSource) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['parentHash', 'halves'])) {
+    throw requestError(400, 'INVALID_SPLIT_INTENT', 'Split confirmation must contain a parent hash and two halves.');
+  }
+  if (typeof body.parentHash !== 'string' || !/^[a-f0-9]{64}$/i.test(body.parentHash)) {
+    throw requestError(400, 'INVALID_SPLIT_INTENT', 'Parent project hash is invalid.');
+  }
+  if (!Array.isArray(body.halves) || body.halves.length !== 2) {
+    throw requestError(400, 'INVALID_SPLIT_INTENT', 'Split confirmation requires exactly two halves.');
+  }
+  const halves = body.halves.map((half, i) => {
+    if (!isPlainObject(half) || !hasExactKeys(half, ['name', 'patterns']) || !Array.isArray(half.patterns)) {
+      throw requestError(400, 'INVALID_SPLIT_INTENT', 'Each split half requires a name and pattern list.');
+    }
+    const patterns = [...new Set(half.patterns)];
+    if (!patterns.length || patterns.some(p => !Number.isInteger(p) || p < 0 || p > 15)) {
+      throw requestError(400, 'INVALID_SPLIT_INTENT', 'Split pattern lists must contain valid non-empty pattern indexes.');
+    }
+    return { name: sanitizeSplitName(half.name, `half ${i + 1} name`), patterns: patterns.sort((a, b) => a - b) };
+  });
+  if (halves[0].patterns.some(p => halves[1].patterns.includes(p))) {
+    throw requestError(400, 'INVALID_SPLIT_INTENT', 'Split pattern lists must not overlap.');
+  }
+  const source = sourceResolver();
+  if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+  let found = null;
+  for (let slot = 1; slot <= 10; slot++) {
+    const file = path.join(source.path, `project${String(slot).padStart(2, '0')}.opz`);
+    if (!fs.existsSync(file)) continue;
+    const bytes = fs.readFileSync(file);
+    if (sha256(bytes) === body.parentHash) { found = { slot, bytes, parsed: parseProject(bytes) }; break; }
+  }
+  if (!found) throw transactionError('SPLIT_PARENT_STALE', 'The parent project changed or is unavailable.', 'Refresh the slot and review the split again.', 409);
+  const used = found.parsed.usedPatterns.slice().sort((a, b) => a - b);
+  const selected = halves.flatMap(half => half.patterns).sort((a, b) => a - b);
+  if (JSON.stringify(selected) !== JSON.stringify(used)) {
+    throw requestError(400, 'INVALID_SPLIT_INTENT', 'Split memberships must cover each occupied pattern exactly once.');
+  }
+  return { parentHash: body.parentHash.toLowerCase(), halves, slot: found.slot };
 }
 
 // ---------- instruments ----------
@@ -1280,6 +1360,16 @@ const server = http.createServer(async (req, res) => {
       const buf = fs.readFileSync(projFile(slot));
       return json(res, 200, { tempo: parseProject(buf).tempo, notes: parseNotes(buf, pat), tracks: parseTrackChunks(buf, pat) });
     }
+    if (p === '/api/split/confirm' && req.method === 'POST') {
+      const body = validateSplitIntent(await readBody(req), testHooks.sourceResolver || getSource);
+      const metaFile = testHooks.metaFile || META_FILE;
+      const meta = loadMetaForUpdate(metaFile);
+      if (!isPlainObject(meta.splits)) meta.splits = {};
+      const intent = { parentHash: body.parentHash, halves: body.halves, confirmed: new Date().toISOString() };
+      meta.splits[body.parentHash] = intent;
+      saveMeta(meta, metaFile);
+      return json(res, 200, { ok: true, split: intent });
+    }
     if (p === '/api/meta' && req.method === 'POST') {
       const body = await readBody(req);
       if (!isPlainObject(body)) throw requestError(400, 'INVALID_METADATA', 'Invalid song metadata.');
@@ -1729,6 +1819,8 @@ module.exports = {
   validateBundleId,
   parseByteRange,
   validateMetadataFields,
+  splitEvidence,
+  validateSplitIntent,
   validateRestore,
   validateSwap,
   loadMeta,
