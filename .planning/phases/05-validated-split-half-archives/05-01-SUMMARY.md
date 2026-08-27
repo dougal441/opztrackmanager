@@ -101,3 +101,9 @@ Local synthesis and restore gating are ready. A real-device UAT must record all 
 ---
 *Phase: 05-validated-split-half-archives*
 *Completed: 2026-08-27*
+
+## Self-Check: PASSED
+
+- Summary file exists at the planned path.
+- Implementation commit `a8586bd` and summary commit `9b8adcf` are present.
+- No parser changes, secrets, generated fixtures, or unrelated files were staged.
