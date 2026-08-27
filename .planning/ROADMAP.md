@@ -144,7 +144,7 @@ Plans:
 
 Plans:
 
-- [ ] 05-01-PLAN.md — Synthesize deterministic confirmed split-half archives and gate restore on sacrificial-device acceptance
+- [x] 05-01-PLAN.md — Synthesize deterministic confirmed split-half archives and gate restore on sacrificial-device acceptance
 
 ### Phase 6: Hardware-Gated Automatic Clearing
 
@@ -171,5 +171,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Verified Archive Shelf & Manual Freeing | 3/3 | Complete    | 2026-08-26 |
 | 3. Guarded Restore & Instrument Recovery | 3/3 | In Progress|  |
 | 4. Split Review & Confirmed Intent | 1/1 | In Progress|  |
-| 5. Validated Split-Half Archives | 0/TBD | Not started | - |
+| 5. Validated Split-Half Archives | 1/1 | In Progress|  |
 | 6. Hardware-Gated Automatic Clearing | 0/TBD | Not started | - |
