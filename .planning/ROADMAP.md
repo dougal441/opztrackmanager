@@ -123,6 +123,9 @@ Plans:
   3. User's confirmed split stores stable parent provenance and exact membership while leaving the original project bytes unchanged.
 
 **Plans**: TBD
+
+- [x] 04-01-PLAN.md
+
 **UI hint**: yes
 
 ### Phase 5: Validated Split-Half Archives
@@ -163,6 +166,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Verified Transaction Foundation | 3/3 | Complete    | 2026-08-26 |
 | 2. Verified Archive Shelf & Manual Freeing | 3/3 | Complete    | 2026-08-26 |
 | 3. Guarded Restore & Instrument Recovery | 3/3 | In Progress|  |
-| 4. Split Review & Confirmed Intent | 0/TBD | Not started | - |
+| 4. Split Review & Confirmed Intent | 1/1 | In Progress|  |
 | 5. Validated Split-Half Archives | 0/TBD | Not started | - |
 | 6. Hardware-Gated Automatic Clearing | 0/TBD | Not started | - |
