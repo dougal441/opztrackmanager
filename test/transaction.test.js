@@ -1206,17 +1206,39 @@ test('published archive stays successful when its name annotation cannot be save
   assert.deepEqual(JSON.parse(fs.readFileSync(metaFile, 'utf8')), priorMeta);
 });
 
+test('swap publishes two recoveries before it changes either slot', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const a = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  const b = Buffer.from(a); b[0x10] ^= 1;
+  fs.writeFileSync(path.join(roots.source.path, 'project02.opz'), b);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const state = await requestJson(subject.server, '/api/state');
+  const one = state.body.slots.find(slot => slot.slot === 1);
+  const two = state.body.slots.find(slot => slot.slot === 2);
+  const result = await requestJson(subject.server, '/api/swap', {
+    a: 1, b: 2,
+    expectedA: { sha256: one.sha256, bytes: one.bytes },
+    expectedB: { sha256: two.sha256, bytes: two.bytes }, sourceToken: one.sourceToken,
+  });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.recovery.length, 2);
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(b));
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project02.opz')).equals(a));
+  for (const receipt of result.body.recovery) assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, receipt.id)).verified, true);
+});
+
 test('later-phase routes unavailable before filesystem mutation', async t => {
   const unavailable = [
-    '/api/swap',
     '/api/clear-slot',
-    '/api/instruments/move',
-    '/api/instruments/remove',
-    '/api/instruments/import',
-    '/api/instruments/snapshot',
     '/api/op1fun/download',
   ];
-  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore'], unavailable });
+  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/clear-slot', '/api/op1fun/download'] });
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
   for (const route of unavailable) {
@@ -1228,11 +1250,32 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
 
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   assert.match(html, /onclick="restoreProject\(/);
-  assert.match(html, /disabled[^>]+Phase 3[^>]+>swap</);
-  assert.match(html, /disabled[^>]+Phase 3[^>]+>remove/);
-  assert.match(html, /disabled[^>]+Phase 3[^>]+>import/);
-  assert.match(html, /disabled[^>]+Phase 3[^>]+>snapshot/);
-  assert.match(html, /disabled[^>]+Phase 3[^>]+>→/);
+  assert.match(html, /onclick="doSwap\(\)"/);
+  assert.match(html, /onclick="removePack\(\)"/);
+  assert.match(html, /onclick="importPack\(\)"/);
+  assert.match(html, /onclick="snapshotInstruments\(\)"/);
+});
+
+test('instrument move and snapshot retain a verified complete grid recovery', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const from = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
+  const to = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '02');
+  fs.mkdirSync(from, { recursive: true }); fs.writeFileSync(path.join(from, 'kit.engine'), 'engine');
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const result = await requestJson(subject.server, '/api/instruments/move', { type: '1-kick', from: 1, to: 2 });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(fs.existsSync(path.join(to, 'kit.engine')), true);
+  assert.equal(fs.existsSync(path.join(from, 'kit.engine')), false);
+  assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, result.body.recovery.id)).verified, true);
+  const snapshot = await requestJson(subject.server, '/api/instruments/snapshot', {});
+  assert.equal(snapshot.status, 200, JSON.stringify(snapshot.body));
+  assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, snapshot.body.recovery.id)).verified, true);
 });
 
 test('state reports sanitized active mutation and separate drafts', async t => {

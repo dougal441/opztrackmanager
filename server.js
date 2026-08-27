@@ -9,6 +9,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { execSync } = require('child_process');
 const { parseProject, parseNotes, parseTrackChunks } = require('./parser.js');
 const { aifToWav, packInfo } = require('./aif.js');
@@ -28,20 +29,14 @@ const SOURCE_TOKEN_SECRET = crypto.randomBytes(32);
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
 const META_TRACKS = ['kick', 'snare', 'hihat', 'sample', 'bass', 'lead', 'arp', 'chord'];
 const mutationRouteInventory = Object.freeze({
-  enabled: ['/api/backup', '/api/restore'],
+  enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
   unavailable: [
-    '/api/swap', '/api/clear-slot',
-    '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import',
-    '/api/instruments/snapshot', '/api/op1fun/download',
+    '/api/clear-slot',
+    '/api/op1fun/download',
   ],
 });
 const unavailableMutationGuidance = Object.freeze({
-  '/api/swap': 'Slot swapping returns in Phase 3 with verified recovery capture.',
   '/api/clear-slot': 'Automatic clearing remains disabled until Phase 6 hardware validation.',
-  '/api/instruments/move': 'Instrument changes return in Phase 3 with verified instrument recovery.',
-  '/api/instruments/remove': 'Instrument changes return in Phase 3 with verified instrument recovery.',
-  '/api/instruments/import': 'Instrument changes return in Phase 3 with verified instrument recovery.',
-  '/api/instruments/snapshot': 'Instrument snapshots return in Phase 3 with guarded source capture.',
   '/api/op1fun/download': 'Pack installation returns in Phase 3 with verified instrument recovery.',
 });
 
@@ -744,6 +739,22 @@ function validateRestore(body) {
   validateSlot(body.slot);
   return body;
 }
+function validateSwap(body) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['a', 'b', 'expectedA', 'expectedB', 'sourceToken'])) {
+    throw requestError(400, 'INVALID_SWAP_REQUEST', 'Swap request must contain two reviewed slots.');
+  }
+  validateSlot(body.a); validateSlot(body.b);
+  if (body.a === body.b) throw requestError(400, 'INVALID_SWAP_REQUEST', 'Choose two different slots.');
+  validateString(body.sourceToken, 'sourceToken', 64, false);
+  for (const fingerprint of [body.expectedA, body.expectedB]) {
+    if (!isPlainObject(fingerprint) || !hasExactKeys(fingerprint, ['sha256', 'bytes'])
+        || !/^[a-f0-9]{64}$/i.test(fingerprint.sha256) || !Number.isSafeInteger(fingerprint.bytes) || fingerprint.bytes < 1) {
+      throw requestError(400, 'INVALID_SWAP_REQUEST', 'Swap slot evidence is invalid.');
+    }
+  }
+  if (!/^[a-f0-9]{64}$/i.test(body.sourceToken)) throw requestError(400, 'INVALID_SWAP_REQUEST', 'Swap source evidence is invalid.');
+  return body;
+}
 function publicSource(source) {
   const label = String(source.label || 'unknown source').replace(/\0/g, '').slice(0, 80) || 'unknown source';
   return { device: source.device === true, label, slot: source.slot };
@@ -1016,6 +1027,88 @@ function writeVerifiedProject(captured, buffer, options = {}) {
     try { fs.unlinkSync(temp); } catch {}
   }
 }
+function swapStale(captured, expected, sourceToken) {
+  return captured.sha256 !== expected.sha256 || captured.bytes !== expected.bytes || captured.sourceToken !== sourceToken;
+}
+function recoveryError(error, recoveries, captured) {
+  let state = 'recovery_required';
+  try {
+    assertCapturedRoot(captured[0]);
+    for (const item of captured) writeVerifiedProject(item, item.buffer);
+    state = 'rolled_back';
+  } catch {}
+  error.status = Number.isInteger(error.status) ? error.status : 500;
+  error.code = /^[A-Z][A-Z0-9_]+$/.test(error.code || '') ? error.code : 'SWAP_FAILED';
+  error.message = 'Swap did not complete.';
+  error.guidance = state === 'rolled_back'
+    ? 'Original slots were restored and verified. Both verified recovery archives remain retained.'
+    : 'Recovery is required. Reconnect the original source and restore the retained recovery archives.';
+  error.recovery = recoveries.map(item => recoveryReceipt(item.file, state));
+  return error;
+}
+
+function validateInstrumentRequest(body, keys) {
+  if (!isPlainObject(body) || !hasExactKeys(body, keys)) throw requestError(400, 'INVALID_INSTRUMENT_REQUEST', 'Instrument request is invalid.');
+  validatePackType(body.type);
+  for (const key of keys.filter(k => k !== 'type' && k !== 'source')) validateSlot(body[key]);
+  if (keys.includes('source')) validateString(body.source, 'source', 2000, false);
+  return body;
+}
+function packPathUnder(root, type, slot) {
+  validatePackType(type); validateSlot(slot);
+  const base = fs.realpathSync(root);
+  const packRoot = fs.realpathSync(path.join(base, 'samplepacks'));
+  const candidate = path.join(packRoot, type, String(slot).padStart(2, '0'));
+  const relative = path.relative(packRoot, candidate);
+  if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw requestError(400, 'PATH_OUTSIDE_ROOT', 'Instrument path is outside the source.');
+  return { packRoot, dir: candidate };
+}
+function gridManifest(root) {
+  const out = [];
+  const walk = (dir, relative = '') => {
+    for (const name of fs.readdirSync(dir)) {
+      if (name.startsWith('.')) continue;
+      const full = path.join(dir, name), rel = path.join(relative, name);
+      const stat = fs.lstatSync(full);
+      if (stat.isDirectory()) walk(full, rel);
+      else if (stat.isFile()) { const bytes = fs.readFileSync(full); out.push({ path: rel.split(path.sep).join('/'), bytes: bytes.length, sha256: sha256(bytes) }); }
+      else throw new Error('unsupported sample-pack entry');
+    }
+  };
+  try { walk(root); } catch { return null; }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+function validateImportSource(value) {
+  const roots = [MUSIC_DIR, TRASH_DIR];
+  let candidate;
+  try {
+    if (path.isAbsolute(value)) throw new Error('absolute');
+    const lexical = path.resolve(MUSIC_DIR, value);
+    const full = fs.realpathSync(lexical);
+    const allowed = roots.some(root => { const base = fs.realpathSync(root); const rel = path.relative(base, full); return rel && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); });
+    const st = fs.lstatSync(lexical);
+    if (!allowed || st.isSymbolicLink() || !st.isFile() || !/\.(aif|aiff)$/i.test(full)) throw new Error('invalid');
+    candidate = full;
+  } catch { throw requestError(400, 'INVALID_IMPORT_PATH', 'Import source is not an allowed AIFF file.'); }
+  const bytes = fs.readFileSync(candidate);
+  try { packInfo(bytes); } catch { throw requestError(400, 'INVALID_AIFF', 'Import source is not a valid AIFF sample.'); }
+  return { path: candidate, bytes };
+}
+function restoreGrid(root, backup) {
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.mkdirSync(root, { recursive: true });
+  copyDir(backup, root);
+}
+function instrumentRecoveryError(error, recovery, captured, backup, gridRoot) {
+  let state = 'recovery_required';
+  try { assertCapturedRoot(captured); restoreGrid(gridRoot, backup); if (manifestMatches(gridRoot, gridManifest(backup))) state = 'rolled_back'; } catch {}
+  error.status = Number.isInteger(error.status) ? error.status : 500;
+  error.code = /^[A-Z][A-Z0-9_]+$/.test(error.code || '') ? error.code : 'INSTRUMENT_FAILED';
+  error.message = 'Instrument change did not complete.';
+  error.guidance = state === 'rolled_back' ? 'The original instrument grid was restored and verified. The recovery archive remains retained.' : 'Recovery is required. Reconnect the source and restore the retained recovery archive.';
+  error.recovery = recoveryReceipt(recovery.file, state);
+  return error;
+}
 
 function manualFreeInspection(file, options = {}) {
   const id = validateBundleId(file);
@@ -1281,7 +1374,120 @@ const server = http.createServer(async (req, res) => {
         }
       });
     }
+    if (p === '/api/swap' && req.method === 'POST') {
+      const body = validateSwap(await readBody(req));
+      return await withMutation(`swap slots ${body.a} and ${body.b}`, async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        const capture = testHooks.captureSource || captureSource;
+        const first = capture(body.a, source), second = capture(body.b, source);
+        mutation.source = publicSource(first);
+        if (swapStale(first, body.expectedA, body.sourceToken) || swapStale(second, body.expectedB, body.sourceToken)
+            || first.sourceToken !== second.sourceToken) {
+          throw transactionError('SWAP_TARGET_STALE', 'A selected slot changed after preview.', 'Refresh and review both slots again.', 409);
+        }
+        const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
+        fs.mkdirSync(autoRoot, { recursive: true });
+        const captures = [first, second];
+        const recoveries = captures.map((captured, index) => archiveCapturedProject(captured, {
+          libraryRoot: autoRoot, name: `recovery-slot${captured.slot}`, deep: false,
+          operation: mutation.operation, beforePublish: index === 0 ? testHooks.beforeSecondSwapBackup : undefined,
+        }));
+        if (swapStale(first, body.expectedA, body.sourceToken) || swapStale(second, body.expectedB, body.sourceToken)) {
+          throw transactionError('SWAP_TARGET_STALE', 'A selected slot changed after preview.', 'Refresh and review both slots again.', 409);
+        }
+        assertCapturedSource(first); assertCapturedSource(second);
+        let started = false;
+        try {
+          writeVerifiedProject(first, second.buffer, { beforeRename() { started = true; if (testHooks.beforeFirstSwapRename) testHooks.beforeFirstSwapRename(); }, afterRename: testHooks.afterFirstSwapRename });
+          writeVerifiedProject(second, first.buffer, { beforeRename: testHooks.beforeSecondSwapRename, afterRename: testHooks.afterSecondSwapRename });
+          return json(res, 200, { ok: true, verified: true, slots: [body.a, body.b], source: publicSource(first),
+            recovery: recoveries.map(item => recoveryReceipt(item.file, 'retained')),
+            guidance: 'Both slots were reread and verified. Both recovery archives were retained.' });
+        } catch (error) {
+          if (!started) throw error;
+          throw recoveryError(error, recoveries, captures);
+        }
+      });
+    }
     // ---- instruments ----
+    if (p === '/api/instruments/move' || p === '/api/instruments/remove' || p === '/api/instruments/import' || p === '/api/instruments/snapshot') {
+      const action = p.split('/').pop();
+      const keys = action === 'move' ? ['type', 'from', 'to'] : action === 'import' ? ['type', 'slot', 'source'] : action === 'remove' ? ['type', 'slot'] : [];
+      const body = action === 'snapshot' ? await readBody(req) : validateInstrumentRequest(await readBody(req), keys);
+      if (action === 'snapshot' && (!isPlainObject(body) || Object.keys(body).length)) throw requestError(400, 'INVALID_INSTRUMENT_REQUEST', 'Snapshot request must be empty.');
+      return await withMutation(`${action} instruments`, async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        const captured = (testHooks.captureSource || captureSource)(1, source);
+        mutation.source = publicSource(captured);
+        assertCapturedRoot(captured);
+        const grid = packPathUnder(captured.root, PACK_TYPES[0], 1).packRoot;
+        const before = gridManifest(grid);
+        if (!before) throw sourceError('SOURCE_UNAVAILABLE', 'Sample packs are unavailable.');
+        const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
+        fs.mkdirSync(autoRoot, { recursive: true });
+        const recovery = archiveCapturedProject(captured, { libraryRoot: autoRoot, name: 'recovery-instruments', deep: true, operation: mutation.operation });
+        if (action === 'snapshot') return json(res, 200, { ok: true, verified: true, recovery: recoveryReceipt(recovery.file, 'retained'), guidance: 'Complete instrument recovery was verified and retained.' });
+        assertCapturedRoot(captured);
+        const backup = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-grid-backup-'));
+        copyDir(grid, backup);
+        let expectedManifest = before.slice();
+        let started = false;
+        try {
+          if (action === 'move') {
+            const from = packPathUnder(captured.root, body.type, body.from).dir;
+            const to = packPathUnder(captured.root, body.type, body.to).dir;
+            if (!fs.existsSync(from) || !slotFiles(from).length) throw requestError(409, 'SOURCE_PACK_EMPTY', 'Source instrument slot is empty.');
+            const fromManifest = gridManifest(from);
+            if (fs.existsSync(to) && slotFiles(to).length) {
+              const toManifest = gridManifest(to), stage = fs.mkdtempSync(path.join(os.tmpdir(), 'opz-pack-swap-'));
+              copyDir(from, path.join(stage, 'from')); copyDir(to, path.join(stage, 'to'));
+              if (!manifestMatches(path.join(stage, 'from'), fromManifest) || !manifestMatches(path.join(stage, 'to'), toManifest)) throw transactionError('PACK_VERIFY_FAILED', 'Instrument copy could not be verified.', 'The live instrument grid was not changed.', 500);
+              fs.rmSync(from, { recursive: true, force: true }); fs.rmSync(to, { recursive: true, force: true });
+              fs.renameSync(path.join(stage, 'from'), to); fs.renameSync(path.join(stage, 'to'), from); fs.rmSync(stage, { recursive: true, force: true });
+            } else {
+              fs.mkdirSync(path.dirname(to), { recursive: true }); copyDir(from, to);
+              if (!manifestMatches(to, fromManifest)) throw transactionError('PACK_VERIFY_FAILED', 'Instrument copy could not be verified.', 'The live instrument grid was not changed.', 500);
+              fs.rmSync(from, { recursive: true, force: true });
+            }
+            const fromPrefix = `${body.type}/${String(body.from).padStart(2, '0')}/`, toPrefix = `${body.type}/${String(body.to).padStart(2, '0')}/`;
+            const targetItems = expectedManifest.filter(item => item.path.startsWith(toPrefix));
+            expectedManifest = expectedManifest.filter(item => !item.path.startsWith(fromPrefix) && !item.path.startsWith(toPrefix));
+            expectedManifest.push(...fromManifest.map(item => ({ ...item, path: toPrefix + item.path })));
+            if (targetItems.length) expectedManifest.push(...targetItems.map(item => ({ ...item, path: fromPrefix + item.path.slice(toPrefix.length) })));
+            started = true;
+          } else if (action === 'remove') {
+            const dir = packPathUnder(captured.root, body.type, body.slot).dir;
+            if (!fs.existsSync(dir) || !slotFiles(dir).length) throw requestError(409, 'SOURCE_PACK_EMPTY', 'Instrument slot is empty.');
+            const trash = path.join(testHooks.trashRoot || TRASH_DIR, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+            fs.mkdirSync(trash, { recursive: true });
+            const trashManifest = copyDir(dir, trash);
+            if (!manifestMatches(trash, trashManifest)) throw transactionError('TRASH_VERIFY_FAILED', 'Instrument trash copy could not be verified.', 'The live instrument grid was not changed.', 500);
+            assertCapturedRoot(captured); fs.rmSync(dir, { recursive: true, force: true }); started = true;
+            const prefix = `${body.type}/${String(body.slot).padStart(2, '0')}/`;
+            expectedManifest = expectedManifest.filter(item => !item.path.startsWith(prefix));
+          } else {
+            const imported = validateImportSource(body.source);
+            const target = packPathUnder(captured.root, body.type, body.slot).dir;
+            if (fs.existsSync(target) && slotFiles(target).length) throw requestError(409, 'TARGET_OCCUPIED', 'Instrument target slot is not empty.');
+            fs.mkdirSync(target, { recursive: true });
+            const out = path.join(target, path.basename(imported.path));
+            const tmp = `${out}.${process.pid}-${crypto.randomBytes(4).toString('hex')}.tmp`;
+            fs.writeFileSync(tmp, imported.bytes, { flag: 'wx', flush: true });
+            if (!fs.readFileSync(tmp).equals(imported.bytes)) throw transactionError('IMPORT_READBACK_FAILED', 'Imported sample could not be verified.', 'The live instrument grid was not changed.', 500);
+            fs.renameSync(tmp, out); started = true;
+            expectedManifest.push({ path: `${body.type}/${String(body.slot).padStart(2, '0')}/${path.basename(imported.path)}`, bytes: imported.bytes.length, sha256: sha256(imported.bytes) });
+          }
+          assertCapturedRoot(captured);
+          if (!manifestMatches(grid, expectedManifest)) throw transactionError('GRID_VERIFY_FAILED', 'Instrument grid could not be verified.', 'The retained recovery archive remains available.', 500);
+          return json(res, 200, { ok: true, verified: true, recovery: recoveryReceipt(recovery.file, 'retained'), guidance: 'Instrument change verified. The complete pre-change grid recovery was retained.' });
+        } catch (error) {
+          if (!started) throw error;
+          throw instrumentRecoveryError(error, recovery, captured, backup, grid);
+        } finally { try { fs.rmSync(backup, { recursive: true, force: true }); } catch {} }
+      });
+    }
     if (p === '/api/instruments/aifs') {
       // .aif files available for import (Music folder + instrument trash)
       const out = [];
@@ -1412,7 +1618,8 @@ const server = http.createServer(async (req, res) => {
     const safe = Number.isInteger(e.status) && /^[A-Z][A-Z0-9_]+$/.test(e.code || '')
       ? { error: e.message, code: e.code, guidance: e.guidance,
         ...(e.source ? { source: e.source } : {}), ...(e.active ? { active: e.active } : {}),
-        ...(e.recovery && recoveryReceipt(e.recovery.id, e.recovery.state) ? { recovery: recoveryReceipt(e.recovery.id, e.recovery.state) } : {}) }
+        ...(Array.isArray(e.recovery) ? { recovery: e.recovery.map(item => recoveryReceipt(item.id, item.state)).filter(Boolean) }
+          : e.recovery && recoveryReceipt(e.recovery.id, e.recovery.state) ? { recovery: recoveryReceipt(e.recovery.id, e.recovery.state) } : {}) }
       : { error: 'Operation failed safely.', code: 'OPERATION_FAILED', guidance: 'Refresh and retry. If the source disconnected, reconnect it first.' };
     return json(res, Number.isInteger(e.status) ? e.status : 500, safe);
   }
@@ -1443,6 +1650,7 @@ module.exports = {
   parseByteRange,
   validateMetadataFields,
   validateRestore,
+  validateSwap,
   loadMeta,
   loadMetaForUpdate,
   loadSettingsForUpdate,

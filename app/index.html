@@ -271,7 +271,7 @@
     <section>
       <h2>swap slots</h2>
       <div class="libRow"><select id="swapA"></select><select id="swapB"></select>
-        <button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified recovery before slot writes" onclick="doSwap()">swap</button></div>
+        <button class="btn" data-mutation="swap" onclick="doSwap()">swap</button></div>
     </section>
   </aside>
 </main>
@@ -287,7 +287,7 @@
       <span class="instHint">Click a pack to audition it. Instrument changes return in Phase 3 with verified recovery. <span class="mono">~</span> marks factory content.</span>
     </div>
     <div class="instBar">
-      <button class="btn ghost" data-mutation="unavailable" disabled title="Phase 3 adds guarded source capture" onclick="snapshotInstruments()">snapshot all instruments → library</button>
+      <button class="btn ghost" data-mutation="snapshot" onclick="snapshotInstruments()">snapshot all instruments → library</button>
     </div>
   </div>
   <aside>
@@ -812,9 +812,11 @@ async function doSwap() {
   const a = parseInt(document.getElementById('swapA').value, 10);
   const b = parseInt(document.getElementById('swapB').value, 10);
   if (a === b) return toast('pick two different slots');
-  if (!confirm('Swap slots ' + a + ' and ' + b + '?')) return;
-  await api('/api/swap', { a, b });
-  toast('swapped ' + a + ' ⇄ ' + b); load();
+  const one = STATE && STATE.slots.find(s => s.slot === a), two = STATE && STATE.slots.find(s => s.slot === b);
+  if (!one || !two || !one.sha256 || !two.sha256 || !one.sourceToken || one.sourceToken !== two.sourceToken) return toast('refresh before swapping');
+  const na = one.meta && one.meta.name || 'untitled', nb = two.meta && two.meta.name || 'untitled';
+  if (!confirm('Swap slot ' + a + ' (“' + na + '”) with slot ' + b + ' (“' + nb + '”)? Two verified recovery archives will be retained before either slot changes.')) return;
+  try { const r = await runMutation('protecting and swapping slots …', () => api('/api/swap', { a, b, expectedA: { sha256: one.sha256, bytes: one.bytes }, expectedB: { sha256: two.sha256, bytes: two.bytes }, sourceToken: one.sourceToken })); toast('swapped ' + a + ' ⇄ ' + b + ' · recoveries retained'); await load(); document.getElementById('source').focus(); return r; } catch {}
 }
 function toggleWav(slot) {
   stopSketch();
@@ -865,9 +867,9 @@ function renderInstruments() {
       (item
         ? '<span style="font-size:12px">' + esc(item.name) + (item.size || item.engine ? '' : ' · factory content — audio lives in the device') + '</span>' +
           (item.engine || !item.size ? '' : '<button class="btn" onclick="audition(\'' + selCell.type + '\',' + selCell.slot + ')">▶ audition</button>') +
-          '<button class="btn ghost" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" onclick="removePack()">remove → trash</button>'
+          '<button class="btn ghost" data-mutation="instrument" onclick="removePack()">remove → trash</button>'
         : '<select id="importSel" style="max-width:220px"><option>loading…</option></select>' +
-          '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" onclick="importPack()">import .aif</button>' +
+          '<button class="btn" data-mutation="instrument" onclick="importPack()">import .aif</button>' +
           '<span class="instHint">or pick one from the pack browser →</span>') +
       '<button class="btn ghost" onclick="selCell=null;render()">done</button>';
     if (!item) loadAifs();
@@ -885,7 +887,7 @@ async function cellClick(type, slot) {
   if (selCell && selCell.type === type && selCell.slot !== slot) {
     const a = selCell.slot, itemA = STATE.instruments[type][a - 1];
     if (!itemA) { selCell = { type, slot }; return render(); }
-    toast('Instrument move and swap return in Phase 3 with verified recovery.');
+    await runMutation('protecting and moving instrument …', () => api('/api/instruments/move', { type, from: a, to: slot }));
     selCell = null; return render();
   }
   const wasSel = selCell && selCell.type === type && selCell.slot === slot;
@@ -896,17 +898,17 @@ async function cellClick(type, slot) {
 async function removePack() {
   const item = STATE.instruments[selCell.type][selCell.slot - 1];
   if (!confirm('Remove "' + item.name + '" from ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '?\nIt moves to library/instrument-trash — recoverable.')) return;
-  await api('/api/instruments/remove', { type: selCell.type, slot: selCell.slot });
+  await runMutation('protecting and removing instrument …', () => api('/api/instruments/remove', { type: selCell.type, slot: selCell.slot }));
   selCell = null; packBuffers.clear(); toast('moved to trash'); load();
 }
 async function importPack() {
   const source = document.getElementById('importSel').value;
   if (!source) return;
-  await api('/api/instruments/import', { type: selCell.type, slot: selCell.slot, source });
+  await runMutation('protecting and importing instrument …', () => api('/api/instruments/import', { type: selCell.type, slot: selCell.slot, source }));
   selCell = null; AIFS = null; toast('imported — eject the device to load it'); load();
 }
 async function snapshotInstruments() {
-  const r = await api('/api/instruments/snapshot', {});
+  const r = await runMutation('protecting instrument snapshot …', () => api('/api/instruments/snapshot', {}));
   toast('snapshot saved → ' + r.file); load();
 }
 
