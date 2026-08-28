@@ -25,9 +25,9 @@ key-files:
   modified: [server.js, app/index.html, test/transaction.test.js]
 key-decisions:
   - "Automatic clearing accepts only version 1 delete-project-file evidence with fixture, device, and all six outcomes true."
-  - "The acceptance record is absent by default; no hardware evidence is created or promoted from opzdisk fixtures."
+  - "The acceptance record remains absent until auditory playback is observed; no hardware evidence is promoted from opzdisk fixtures."
   - "Every clear publishes a deep verified recovery before unlinking the captured project and reports non-success on unconfirmed state."
-requirements-completed: [CLEAR-01, CLEAR-02, CLEAR-03]
+requirements-completed: [CLEAR-01, CLEAR-03]
 coverage:
   - id: D1
     description: Automatic clearing remains unavailable without exact acceptance evidence.
@@ -50,15 +50,15 @@ coverage:
     requirement: CLEAR-03
     verification: []
     human_judgment: true
-    rationale: No OP-Z is mounted; the opt-in direct UAT skips and data/clear-acceptance.json remains absent.
+    rationale: The physical OP-Z passed deletion, reconnect, absent-file empty-slot, and exact recovery checks; auditory playback remains unobserved, so production acceptance stays absent.
 duration: 2min
 completed: 2026-08-27
-status: complete
+status: in_progress
 ---
 
 # Phase 06 Plan 01: Hardware-Gated Automatic Clearing Summary
 
-**Exact delete-project-file clearing is now archive-first and source-pinned, while absent hardware acceptance keeps the automatic control disabled.**
+**Exact delete-project-file clearing passed real-device deletion, reconnect, and recovery checks; the production gate remains disabled pending auditory playback evidence.**
 
 ## Performance
 
@@ -77,7 +77,7 @@ status: complete
 ## Task Commits
 
 1. **Task 1: Trace verified archive through gated delete and confirmation** - `29381f2`
-2. **Task 2: Run direct sacrificial-device acceptance and recovery UAT** - pending by design; no hardware evidence recorded
+2. **Task 2: Run direct sacrificial-device acceptance and recovery UAT** - device cycle passed except unobserved auditory playback; no incomplete production acceptance record was written
 
 ## Files Created/Modified
 
@@ -87,7 +87,7 @@ status: complete
 
 ## Deviations from Plan
 
-None requiring a code deviation. Hardware UAT was honestly left pending because no OP-Z is mounted; no acceptance record was created.
+Real hardware established that an empty slot is represented by absence of `project10.opz`, not a recreated default project. Existing product logic already uses that representation; one regression assertion now preserves it.
 
 ## Issues Encountered
 
@@ -99,7 +99,7 @@ None in the shipped fixture implementation. Hardware acceptance remains intentio
 
 ## Hardware Status
 
-`OPZ_HARDWARE_UAT=1 node --test --test-name-pattern='automatic clear sacrificial-device UAT' test/transaction.test.js` skips because `OPZ_ROOT` is not set. `data/clear-acceptance.json` was not inspected, created, or staged. Automatic clearing therefore remains disabled by default.
+On the physical `/dev/disk6` OP-Z, slot 10 was archived and recovered first, deleted, confirmed absent after manual Content Mode return, restored from retained recovery, and confirmed after a second return with exact SHA-256 `ed91476ca975f2f3cafd3503a250a56debe1ad2fbfcf39ae6f1724b2b9465f16`, successful parse, and unchanged rejection state. Auditory playback remains unobserved, so `data/clear-acceptance.json` was not inspected, created, or staged and automatic clearing remains disabled.
 
 ## Verification
 

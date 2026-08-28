@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-current_phase: 3
-current_phase_name: Guarded Restore & Instrument Recovery
-status: executing
-stopped_at: Phase 2 complete, ready to plan Phase 3
-last_updated: "2026-08-27T02:19:36.010Z"
-last_activity: 2026-08-27
-last_activity_desc: Phase 3 execution started
+current_phase: 5
+current_phase_name: Validated Split-Half Archives
+status: blocked_on_physical_playback_confirmation
+stopped_at: All automated and direct filesystem hardware UAT complete; auditory playback remains unobserved
+last_updated: "2026-08-28T23:30:15.000Z"
+last_activity: 2026-08-29
+last_activity_desc: Final Phase 6 original recovery verified on physical OP-Z
 state_head: fd369c4ab29d0e8a66f67b4514accc980187621c
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 8
-  percent: 33
+  completed_plans: 9
+  percent: 67
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** Dougal can free an OP-Z slot knowing the complete song can be verified and restored later.
-**Current focus:** Phase 3 — Guarded Restore & Instrument Recovery
+**Current focus:** Physical auditory playback confirmation for the synthesized-half acceptance gate
 
 ## Current Position
 
-Phase: 3 (Guarded Restore & Instrument Recovery) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-08-27 — Phase 3 execution started
+Phase: 5/6 hardware acceptance — BLOCKED ON AUDITORY OBSERVATION
+Plan: all 9 plans executed
+Status: All automated and direct filesystem/device evidence passed; playback remains unobserved
+Last activity: 2026-08-29 — original slot 10 recovery verified exactly after final Content Mode return
 
-Progress: [████████████████████] 3/3 plans ([██░░░░░░░░] 17%)
+Progress: [████████████████████] 9/9 plans ([███████░░░] 67% requirements complete by phase)
 
 ## Performance Metrics
 
@@ -86,8 +86,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 5 requires hands-on sacrificial-device acceptance before synthesized halves may be restored.
-- Phase 6 requires hands-on acceptance of a specific clear method before automatic clearing may be enabled.
+- Phase 5 device format/reconnect/rejection/recovery passed; auditory playback remains the sole missing acceptance outcome.
+- Phase 6 deletion/reconnect/empty-slot/recovery passed; its production acceptance record remains absent because auditory playback was not observed.
 
 ## Deferred Items
 

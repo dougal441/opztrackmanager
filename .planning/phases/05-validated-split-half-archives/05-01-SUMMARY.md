@@ -23,10 +23,10 @@ key-files:
   modified: [server.js, app/index.html, test/transaction.test.js]
 key-decisions:
   - "Retain original pattern indexes while zeroing omitted payloads and filtering/padding every chain deterministically."
-  - "Synthesized archives remain restore-ineligible until exact, versioned five-outcome device evidence matches the stored project hash."
+  - "Synthesized archives remain restore-ineligible until exact, versioned five-outcome device evidence matches the stored project hash; unobserved playback keeps the gate closed."
 patterns-established:
   - "Archive synthesis rereads and reparses output before publication, while source capture remains independently validated."
-requirements-completed: [SPLT-04, SPLT-05]
+requirements-completed: [SPLT-04]
 coverage:
   - id: D1
     description: "Confirmed split halves synthesize deterministic, reparsed archives with repaired chains and immutable parent bytes."
@@ -44,21 +44,21 @@ coverage:
         ref: "test/transaction.test.js#split archive acceptance stays pending without exact five-outcome evidence"
         status: pass
     human_judgment: true
-    rationale: "A real OP-Z is required to verify eject, reconnect, rejection, playback, and recovery behavior."
+    rationale: "The real OP-Z passed eject, reconnect, rejection, parse, and recovery; auditory playback remains unobserved."
 duration: 14min
 completed: 2026-08-27
-status: complete
+status: in_progress
 ---
 
 # Phase 05 Plan 01: Validated Split-Half Archives Summary
 
-**Confirmed split halves now produce deterministic, verified local archives while restore remains locked behind exact sacrificial-device acceptance.**
+**Confirmed split halves now pass real-device format, reconnect, rejection, and recovery checks while restore remains locked pending auditory playback evidence.**
 
 ## Performance
 
 - **Tasks:** 2
 - **Files modified:** 3 implementation/test files
-- **Hardware:** pending; no OP-Z was mounted
+- **Hardware:** synthesized hash `da23dd688cbd81696e79be9f5c7f2fad4637c68b8def753f20fd44dacd183b4c` accepted after same-device reconnect; selected patterns reparsed; rejection state stayed unchanged; original slot 10 recovered exactly
 
 ## Accomplishments
 
@@ -92,11 +92,11 @@ status: complete
 
 ## Issues Encountered
 
-The OP-Z was not mounted, so direct filesystem/API hardware acceptance could not run and remains pending by design. No `opzdisk/` result was treated as hardware evidence.
+Direct API/filesystem UAT passed eject, same-device reconnect, rejection, parse, and exact original recovery on the physical OP-Z. Auditory playback could not be observed without forbidden screen or physical control, so no five-outcome acceptance record was created and synthesized restore remains safely disabled. No `opzdisk/` result was treated as hardware evidence.
 
 ## Next Phase Readiness
 
-Local synthesis and restore gating are ready. A real-device UAT must record all five outcomes for the exact synthesized archive before any split archive can be restored.
+Local synthesis and device compatibility are verified. One physical auditory playback confirmation remains before the exact synthesized archive can receive five-outcome acceptance and become restore-eligible.
 
 ---
 *Phase: 05-validated-split-half-archives*

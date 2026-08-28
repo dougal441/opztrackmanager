@@ -15,11 +15,11 @@
 
 ### Restore Safety
 
-- [ ] **REST-01**: User must explicitly choose a restore target and can see its current song before confirming overwrite
-- [ ] **REST-02**: User cannot overwrite a target until its current project has been captured as a verified automatic backup
-- [ ] **REST-03**: User's selected archive is revalidated before restore and the written target is reread and byte-checked afterward
-- [ ] **REST-04**: User receives a recovery reference and a non-success state if any restore step fails after mutation begins
-- [ ] **REST-05**: User restores the project by default; whole-grid instrument restoration is a separate explicit action with its own verified pre-restore backup
+- [x] **REST-01**: User must explicitly choose a restore target and can see its current song before confirming overwrite
+- [x] **REST-02**: User cannot overwrite a target until its current project has been captured as a verified automatic backup
+- [x] **REST-03**: User's selected archive is revalidated before restore and the written target is reread and byte-checked afterward
+- [x] **REST-04**: User receives a recovery reference and a non-success state if any restore step fails after mutation begins
+- [x] **REST-05**: User restores the project by default; whole-grid instrument restoration is a separate explicit action with its own verified pre-restore backup
 
 ### Device Safety
 
@@ -30,17 +30,17 @@
 
 ### Split Projects
 
-- [ ] **SPLT-01**: User can see likely split projects identified from disjoint saved chains, separated pattern clusters, and track-profile evidence
-- [ ] **SPLT-02**: User can inspect the evidence, edit pattern membership, name both halves, confirm the split, or reject the suggestion
-- [ ] **SPLT-03**: User's confirmed split intent stores stable parent provenance and exact pattern membership without altering the original project
-- [ ] **SPLT-04**: User can create independent half-project archives only through deterministic synthesis that preserves the parent, repairs invalid chain references, reparses successfully, and passes retained-pattern fixture checks
+- [x] **SPLT-01**: User can see likely split projects identified from disjoint saved chains, separated pattern clusters, and track-profile evidence
+- [x] **SPLT-02**: User can inspect the evidence, edit pattern membership, name both halves, confirm the split, or reject the suggestion
+- [x] **SPLT-03**: User's confirmed split intent stores stable parent provenance and exact pattern membership without altering the original project
+- [x] **SPLT-04**: User can create independent half-project archives only through deterministic synthesis that preserves the parent, repairs invalid chain references, reparses successfully, and passes retained-pattern fixture checks
 - [ ] **SPLT-05**: User can restore a synthesized half only after its format passes a recorded sacrificial-device eject, reconnect, rejection, playback, and recovery acceptance check
 
 ### Hardware-Gated Clearing
 
-- [ ] **CLEAR-01**: User cannot enable automatic slot clearing until one specific clearing method passes local-fixture and sacrificial-device acceptance checks
+- [x] **CLEAR-01**: User cannot enable automatic slot clearing until one specific clearing method passes local-fixture and sacrificial-device acceptance checks
 - [ ] **CLEAR-02**: User can automatically archive and free a slot only when the archive is verified, the proven clear method is enabled, and post-reconnect device state confirms success
-- [ ] **CLEAR-03**: User retains a verified recovery archive and receives explicit recovery instructions if automatic clearing cannot be confirmed
+- [x] **CLEAR-03**: User retains a verified recovery archive and receives explicit recovery instructions if automatic clearing cannot be confirmed
 
 ## v2 Requirements
 
@@ -75,23 +75,23 @@
 | ARCH-03 | Phase 2 | Complete |
 | ARCH-04 | Phase 1 | Complete |
 | ARCH-05 | Phase 2 | Complete |
-| REST-01 | Phase 3 | Pending |
-| REST-02 | Phase 3 | Pending |
-| REST-03 | Phase 3 | Pending |
-| REST-04 | Phase 3 | Pending |
-| REST-05 | Phase 3 | Pending |
+| REST-01 | Phase 3 | Complete |
+| REST-02 | Phase 3 | Complete |
+| REST-03 | Phase 3 | Complete |
+| REST-04 | Phase 3 | Complete |
+| REST-05 | Phase 3 | Complete |
 | SAFE-01 | Phase 1 | Complete |
 | SAFE-02 | Phase 1 | Complete |
 | SAFE-03 | Phase 1 | Complete |
 | SAFE-04 | Phase 2 | Complete |
-| SPLT-01 | Phase 4 | Pending |
-| SPLT-02 | Phase 4 | Pending |
-| SPLT-03 | Phase 4 | Pending |
-| SPLT-04 | Phase 5 | Pending |
+| SPLT-01 | Phase 4 | Complete |
+| SPLT-02 | Phase 4 | Complete |
+| SPLT-03 | Phase 4 | Complete |
+| SPLT-04 | Phase 5 | Complete |
 | SPLT-05 | Phase 5 | Pending |
-| CLEAR-01 | Phase 6 | Pending |
+| CLEAR-01 | Phase 6 | Complete |
 | CLEAR-02 | Phase 6 | Pending |
-| CLEAR-03 | Phase 6 | Pending |
+| CLEAR-03 | Phase 6 | Complete |
 
 **Coverage:**
 
@@ -101,4 +101,4 @@
 
 ---
 *Requirements defined: 2026-08-24*
-*Last updated: 2026-08-24 after initial definition*
+*Last updated: 2026-08-29 after direct OP-Z hardware UAT; SPLT-05 and CLEAR-02 remain pending auditory playback evidence.*

@@ -1357,6 +1357,7 @@ test('automatic clear is gated, archives first, and retains recovery on confirma
   // complete deep archive is required before the delete boundary
   assert.equal(archive.body.complete, true, JSON.stringify({ result: archive.body, info: JSON.parse(fs.readFileSync(path.join(roots.libraryRoot, archive.body.file, 'info.json'), 'utf8')) }));
   assert.equal(failed.status, 409); assert.equal(failed.body.code, 'CLEAR_UNCONFIRMED');
+  assert.equal(fs.existsSync(path.join(roots.source.path, 'project01.opz')), false);
   assert.ok(failed.body.recovery && failed.body.recovery.id);
   assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, failed.body.recovery.id)).verified, true);
   assert.match(failed.body.guidance, /Reconnect.*restore/i);

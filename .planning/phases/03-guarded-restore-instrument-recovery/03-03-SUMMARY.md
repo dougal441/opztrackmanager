@@ -39,7 +39,7 @@ Separate source- and archive-bound whole-grid restoration with staged exact repl
 
 - `node --test test/transaction.test.js` — 55 passed, 3 skipped.
 - `node --check server.js` — passed.
-- Mounted UAT — skipped because no OP-Z source was present under `/Volumes`; it must be rerun with `OPZ_HARDWARE_UAT=1` while a real device is mounted in Content Mode.
+- Mounted UAT — passed on the physical `/dev/disk6` OP-Z: same-byte project restore, exact whole-grid replacement, retained recoveries, and unchanged final mounted tree. Evidence digest: `64df4a722454ed36e5583a83d2533f18ca9d7951f69138cdcd995f70a766eb61`.
 
 ## Deviations from Plan
 
@@ -51,7 +51,7 @@ None.
 
 ## Hardware Gate Status
 
-Not passed. No mounted device was available. The opt-in test has a hard real-source assertion and does not substitute fixture evidence.
+Passed on a real OP-Z in Content Mode using direct API/filesystem checks only; `opzdisk/` was not used as hardware evidence.
 
 ## Self-Check: PASSED
 
