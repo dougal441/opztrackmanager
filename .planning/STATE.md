@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-current_phase: 5
-current_phase_name: Validated Split-Half Archives
-status: blocked_on_physical_playback_confirmation
-stopped_at: All automated and direct filesystem hardware UAT complete; auditory playback remains unobserved
-last_updated: "2026-08-28T23:30:15.000Z"
+current_phase: 6
+current_phase_name: Hardware-Gated Automatic Clearing
+status: complete
+stopped_at: Milestone complete after direct OP-Z playback and final recovery verification
+last_updated: "2026-08-28T23:53:12.000Z"
 last_activity: 2026-08-29
-last_activity_desc: Final Phase 6 original recovery verified on physical OP-Z
+last_activity_desc: All phases and physical OP-Z UAT completed
 state_head: fd369c4ab29d0e8a66f67b4514accc980187621c
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 6
   total_plans: 9
   completed_plans: 9
-  percent: 67
+  percent: 100
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** Dougal can free an OP-Z slot knowing the complete song can be verified and restored later.
-**Current focus:** Physical auditory playback confirmation for the synthesized-half acceptance gate
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 5/6 hardware acceptance — BLOCKED ON AUDITORY OBSERVATION
+Phase: 6 — COMPLETE
 Plan: all 9 plans executed
-Status: All automated and direct filesystem/device evidence passed; playback remains unobserved
-Last activity: 2026-08-29 — original slot 10 recovery verified exactly after final Content Mode return
+Status: All automated, direct filesystem/device, playback, rejection, and recovery evidence passed
+Last activity: 2026-08-29 — accepted split playback and final exact slot-1 recovery verified
 
-Progress: [████████████████████] 9/9 plans ([███████░░░] 67% requirements complete by phase)
+Progress: [████████████████████] 9/9 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -74,7 +74,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - Phase 1: Archives publish only after atomic reread, byte comparison, parse, SHA-256/length evidence, and final source revalidation.
 - Phase 1: Failed or corrupt archives remain visible only as sanitized, restore-ineligible diagnostics.
 - Phase 5: Synthesized split halves remain restore-ineligible until their recorded device acceptance check passes.
-- Phase 6: Automatic clearing remains disabled until one method passes fixture and device checks; manual clearing remains the fallback.
+- Phase 6: Automatic clearing is enabled only because the delete-project-file method passed fixture and complete physical-device checks; manual clearing remains the fallback.
 - [Phase 2]: Schema 1 stores only bounded public metadata, sanitized provenance, and current-byte project/snippet/whole-grid evidence.
 - [Phase 2]: Project verification, archive completeness, restore eligibility, and manual-free eligibility remain independent derived facts.
 - [Phase 2]: Manual-free eligibility is recomputed from complete stored evidence and exact fresh mounted slot bytes on every read.
@@ -86,8 +86,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 5 device format/reconnect/rejection/recovery passed; auditory playback remains the sole missing acceptance outcome.
-- Phase 6 deletion/reconnect/empty-slot/recovery passed; its production acceptance record remains absent because auditory playback was not observed.
+- None. The synthesized half passed auditory comparison and exact recovery; the proven delete-project-file method is enabled by its bounded acceptance record.
 
 ## Deferred Items
 

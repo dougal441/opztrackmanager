@@ -34,12 +34,12 @@
 - [x] **SPLT-02**: User can inspect the evidence, edit pattern membership, name both halves, confirm the split, or reject the suggestion
 - [x] **SPLT-03**: User's confirmed split intent stores stable parent provenance and exact pattern membership without altering the original project
 - [x] **SPLT-04**: User can create independent half-project archives only through deterministic synthesis that preserves the parent, repairs invalid chain references, reparses successfully, and passes retained-pattern fixture checks
-- [ ] **SPLT-05**: User can restore a synthesized half only after its format passes a recorded sacrificial-device eject, reconnect, rejection, playback, and recovery acceptance check
+- [x] **SPLT-05**: User can restore a synthesized half only after its format passes a recorded sacrificial-device eject, reconnect, rejection, playback, and recovery acceptance check
 
 ### Hardware-Gated Clearing
 
 - [x] **CLEAR-01**: User cannot enable automatic slot clearing until one specific clearing method passes local-fixture and sacrificial-device acceptance checks
-- [ ] **CLEAR-02**: User can automatically archive and free a slot only when the archive is verified, the proven clear method is enabled, and post-reconnect device state confirms success
+- [x] **CLEAR-02**: User can automatically archive and free a slot only when the archive is verified, the proven clear method is enabled, and post-reconnect device state confirms success
 - [x] **CLEAR-03**: User retains a verified recovery archive and receives explicit recovery instructions if automatic clearing cannot be confirmed
 
 ## v2 Requirements
@@ -88,9 +88,9 @@
 | SPLT-02 | Phase 4 | Complete |
 | SPLT-03 | Phase 4 | Complete |
 | SPLT-04 | Phase 5 | Complete |
-| SPLT-05 | Phase 5 | Pending |
+| SPLT-05 | Phase 5 | Complete |
 | CLEAR-01 | Phase 6 | Complete |
-| CLEAR-02 | Phase 6 | Pending |
+| CLEAR-02 | Phase 6 | Complete |
 | CLEAR-03 | Phase 6 | Complete |
 
 **Coverage:**
@@ -101,4 +101,4 @@
 
 ---
 *Requirements defined: 2026-08-24*
-*Last updated: 2026-08-29 after direct OP-Z hardware UAT; SPLT-05 and CLEAR-02 remain pending auditory playback evidence.*
+*Last updated: 2026-08-29 after complete direct OP-Z hardware and playback UAT.*

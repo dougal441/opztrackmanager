@@ -23,10 +23,10 @@ key-files:
   modified: [server.js, app/index.html, test/transaction.test.js]
 key-decisions:
   - "Retain original pattern indexes while zeroing omitted payloads and filtering/padding every chain deterministically."
-  - "Synthesized archives remain restore-ineligible until exact, versioned five-outcome device evidence matches the stored project hash; unobserved playback keeps the gate closed."
+  - "Synthesized archives remain restore-ineligible until exact, versioned five-outcome device evidence matches the stored project hash."
 patterns-established:
   - "Archive synthesis rereads and reparses output before publication, while source capture remains independently validated."
-requirements-completed: [SPLT-04]
+requirements-completed: [SPLT-04, SPLT-05]
 coverage:
   - id: D1
     description: "Confirmed split halves synthesize deterministic, reparsed archives with repaired chains and immutable parent bytes."
@@ -44,15 +44,15 @@ coverage:
         ref: "test/transaction.test.js#split archive acceptance stays pending without exact five-outcome evidence"
         status: pass
     human_judgment: true
-    rationale: "The real OP-Z passed eject, reconnect, rejection, parse, and recovery; auditory playback remains unobserved."
+    rationale: "The real OP-Z passed eject, reconnect, rejection, auditory comparison of retained patterns, and exact recovery."
 duration: 14min
 completed: 2026-08-27
-status: in_progress
+status: complete
 ---
 
 # Phase 05 Plan 01: Validated Split-Half Archives Summary
 
-**Confirmed split halves now pass real-device format, reconnect, rejection, and recovery checks while restore remains locked pending auditory playback evidence.**
+**Confirmed split halves pass real-device format, reconnect, rejection, playback, and recovery checks and can become restore-eligible only with exact acceptance evidence.**
 
 ## Performance
 
@@ -73,10 +73,11 @@ status: in_progress
 
 ## Verification
 
-- `node --test test/transaction.test.js` — 58 passed, 3 existing mounted-device UATs skipped.
+- `node --test test/transaction.test.js` — 62 passed, 4 opt-in mounted-device UATs skipped.
 - `node --check server.js` — passed.
 - Parser syntax and fixture synthesis checks passed; `parser.js` was read/reused and not modified or staged.
-- Hardware acceptance is explicitly pending; fixture success does not unlock restore.
+- Exact five-outcome hardware acceptance now unlocks only the accepted synthesized archive; fixture success alone still does not unlock restore.
+- Live `/api/state` — accepted synthesized archive reports `restoreEligible: true` on the mounted OP-Z.
 
 ## Deviations from Plan
 
@@ -92,11 +93,11 @@ status: in_progress
 
 ## Issues Encountered
 
-Direct API/filesystem UAT passed eject, same-device reconnect, rejection, parse, and exact original recovery on the physical OP-Z. Auditory playback could not be observed without forbidden screen or physical control, so no five-outcome acceptance record was created and synthesized restore remains safely disabled. No `opzdisk/` result was treated as hardware evidence.
+Direct API/filesystem UAT passed on the physical OP-Z. For the current slot-1 parent `47c9bf426876efbb25a39b7ac72ff3d6ea45f8fa76899a3f7f2d3f06e728ce6c`, synthesized project `e42fbb2271ac683299e235b036757f902c49255fd9c48164762553118c80baab` retained patterns 0, 4, 6, and 7; the user confirmed all four matched the original recording perfectly. Rejection stayed empty, firmware runtime-state saves preserved the retained pattern set, and the original recovered exactly. Accepted archive `2026-08-28-23-52-50_slot1 patterns 0 4 6 7 hardware accepted_2agHHY` is restore-eligible. No `opzdisk/` result was treated as hardware evidence.
 
 ## Next Phase Readiness
 
-Local synthesis and device compatibility are verified. One physical auditory playback confirmation remains before the exact synthesized archive can receive five-outcome acceptance and become restore-eligible.
+Local synthesis, device compatibility, playback, and exact recovery are verified. The accepted synthesized archive is restore-eligible through the existing five-outcome gate.
 
 ---
 *Phase: 05-validated-split-half-archives*
