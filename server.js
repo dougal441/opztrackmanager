@@ -225,13 +225,13 @@ function loadClearAcceptance(file = CLEAR_ACCEPTANCE_FILE) {
     return isPlainObject(value) ? value : null;
   } catch { return null; }
 }
-function clearAcceptanceValid(record, source, projectSha256) {
-  if (!isPlainObject(record) || !isPlainObject(source) || typeof projectSha256 !== 'string') return false;
+function clearAcceptanceValid(record, source) {
+  if (!isPlainObject(record) || !isPlainObject(source)) return false;
   if (!hasExactKeys(record, ['version', 'method', 'fixture', 'device', 'outcomes', 'recorded'])
       || record.version !== 1 || record.method !== 'delete-project-file' || record.fixture !== true
       || !isPlainObject(record.device) || !hasExactKeys(record.device, ['label', 'projectSha256'])
       || typeof record.device.label !== 'string' || !record.device.label || record.device.label.length > 80
-      || record.device.projectSha256 !== projectSha256
+      || typeof record.device.projectSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(record.device.projectSha256)
       || record.device.label !== String(source.label || '')
       || !isPlainObject(record.outcomes)
       || !hasExactKeys(record.outcomes, ['eject', 'reconnect', 'rejection', 'playback', 'recovery', 'emptySlot'])
@@ -239,8 +239,8 @@ function clearAcceptanceValid(record, source, projectSha256) {
       || !isIsoTime(record.recorded)) return false;
   return source.device === true;
 }
-function clearEnabled(source, projectSha256, record = loadClearAcceptance()) {
-  return clearAcceptanceValid(record, source, projectSha256);
+function clearEnabled(source, record = loadClearAcceptance()) {
+  return clearAcceptanceValid(record, source);
 }
 function sanitizeSplitName(value, field) {
   validateString(value, field, 80, false);
@@ -1471,7 +1471,7 @@ const server = http.createServer(async (req, res) => {
       };
       return json(res, 200, {
         ...slotState,
-        clearEnabled: Boolean(clearSlot && clearEnabled(clearSource, clearSlot.sha256)),
+        clearEnabled: Boolean(clearSlot && clearEnabled(clearSource)),
         library,
         archiveShelf: archiveShelfData(library, drafts, (file, auto) => auto
           ? { eligible: false, relation: 'archive_ineligible', guidance: 'Automatic recovery backups are retained but do not offer manual-free guidance.' }
@@ -1503,7 +1503,7 @@ const server = http.createServer(async (req, res) => {
           throw transactionError('CLEAR_TARGET_STALE', 'The selected slot changed after preview.', 'Refresh and review the archive and mounted slot again.', 409);
         }
         const acceptance = loadClearAcceptance(testHooks.clearAcceptanceFile || CLEAR_ACCEPTANCE_FILE);
-        if (!clearEnabled(source, captured.sha256, acceptance)) throw transactionError('CLEAR_UNAVAILABLE', 'Automatic clearing is unavailable.',
+        if (!clearEnabled(source, acceptance)) throw transactionError('CLEAR_UNAVAILABLE', 'Automatic clearing is unavailable.',
           'Complete the exact delete-project-file fixture and sacrificial-device acceptance, or use the manual-free checklist.', 409);
         const bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR,
           Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);

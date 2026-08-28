@@ -1363,22 +1363,34 @@ test('automatic clear is gated, archives first, and retains recovery on confirma
   assert.match(failed.body.guidance, /Reconnect.*restore/i);
 });
 
-test('clear acceptance reader rejects absent, wrong-method, and fixture-only records', t => {
+test('clear acceptance reader gates the proven method, not one sacrificial project', t => {
   const source = { device: true, label: 'fixture OP-Z' };
-  assert.equal(subject.clearAcceptanceValid(null, source, 'a'.repeat(64)), false);
+  assert.equal(subject.clearAcceptanceValid(null, source), false);
   const base = { version: 1, method: 'delete-project-file', fixture: true,
     device: { label: source.label, projectSha256: 'a'.repeat(64) },
     outcomes: { eject: true, reconnect: true, rejection: true, playback: true, recovery: true, emptySlot: true }, recorded: '2026-08-25T12:00:00.000Z' };
-  assert.equal(subject.clearAcceptanceValid({ ...base, method: 'other' }, source, 'a'.repeat(64)), false);
-  assert.equal(subject.clearAcceptanceValid(base, { ...source, device: false }, 'a'.repeat(64)), false);
-  assert.equal(subject.clearAcceptanceValid(base, source, 'a'.repeat(64)), true);
+  assert.equal(subject.clearAcceptanceValid({ ...base, method: 'other' }, source), false);
+  assert.equal(subject.clearAcceptanceValid(base, { ...source, device: false }), false);
+  assert.equal(subject.clearAcceptanceValid(base, source), true);
 });
 
 test('automatic clear sacrificial-device UAT', {
   skip: !process.env.OPZ_HARDWARE_UAT || !process.env.OPZ_ROOT
     || !fs.existsSync(path.join(process.env.OPZ_ROOT, 'projects'))
 }, () => {
-  assert.fail('Hardware acceptance is pending; run the direct Content Mode UAT before recording evidence.');
+  const root = fs.realpathSync(process.env.OPZ_ROOT);
+  assert.match(root, /^\/Volumes\//, 'hardware UAT requires a mounted volume');
+  const source = { device: true, label: path.basename(root) };
+  const acceptance = subject.loadClearAcceptance();
+  assert.equal(subject.clearAcceptanceValid(acceptance, source), true);
+  const acceptedProject = fs.readdirSync(path.join(root, 'projects')).some(name => {
+    if (!/^project\d\d\.opz$/.test(name)) return false;
+    const bytes = fs.readFileSync(path.join(root, 'projects', name));
+    try { parseProject(bytes); } catch { return false; }
+    return crypto.createHash('sha256').update(bytes).digest('hex') === acceptance.device.projectSha256;
+  });
+  assert.equal(acceptedProject, true, 'the sacrificial project must remain recovered on the mounted OP-Z');
+  assert.deepEqual(fs.readdirSync(path.join(root, 'rejected')).sort(), []);
 });
 
 test('whole-grid restore replaces stale files and retains a verified recovery', async t => {
