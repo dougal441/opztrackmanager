@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OP-Z manager</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23ff4b00'/><circle cx='8' cy='8' r='4' fill='%23efeeea'/></svg>">
+<style>
+  :root {
+    --bg: #efeeea; --surface: #f7f6f3; --sunken: #e6e4de;
+    --ink: #1b1b19; --dim: #6e6b64; --faint: #b8b5ac;
+    --line: #dcdad3; --line2: #cfccc4;
+    --accent: #ff4b00; --accent-text: #c93400;
+    --t-kick: #5a9a6e; --t-snare: #c25b52; --t-hihat: #c2a23c; --t-sample: #cf7a3d;
+    --t-bass: #5f83ad; --t-lead: #8a76ad; --t-arp: #57a099; --t-chord: #b76e93;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans);
+         -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .35;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.02 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .wrap { max-width: 1380px; margin: 0 auto; padding: 28px 32px 80px; }
+  /* ---------- header ---------- */
+  header { display: flex; align-items: center; gap: 24px; padding-bottom: 18px;
+           border-bottom: 1px solid var(--line2); }
+  .mark { display: flex; align-items: baseline; gap: 10px; }
+  .mark .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); align-self: center; }
+  .mark h1 { font: 700 17px/1 var(--sans); letter-spacing: -0.02em; }
+  .mark h1 em { font-style: normal; color: var(--dim); font-weight: 400; }
+  nav.tabs { display: flex; gap: 2px; margin-left: 18px; background: var(--sunken);
+             padding: 3px; border-radius: 6px; }
+  .tab { font: 500 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .12em;
+         padding: 8px 16px; border-radius: 4px; cursor: pointer; color: var(--dim);
+         transition: color .18s, background .18s; border: none; background: none; }
+  .tab:hover { color: var(--ink); }
+  .tab.active { background: var(--surface); color: var(--ink); box-shadow: inset 0 -2px var(--accent), 0 1px 2px rgba(60,55,40,.12); }
+  #source { margin-left: auto; font: 11px/1.4 var(--mono); color: var(--dim); text-align: right; }
+  #source .st { display: inline-flex; align-items: center; gap: 6px; }
+  #source .st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  #source .st.on::before { background: #3f9e5f; }
+  #source .st.copy::before { background: #d9a514; }
+  .iconbtn { border: 1px solid var(--line2); background: var(--surface); border-radius: 5px;
+             width: 30px; height: 30px; cursor: pointer; color: var(--dim); font-size: 14px;
+             transition: color .18s, border-color .18s, transform .1s; }
+  .iconbtn:hover { color: var(--ink); border-color: var(--dim); }
+  .iconbtn:active { transform: scale(.95); }
+  /* ---------- generic ---------- */
+  .btn { font: 500 11px/1 var(--mono); letter-spacing: .06em; color: var(--ink);
+         background: var(--surface); border: 1px solid var(--line2); border-radius: 5px;
+         padding: 7px 13px; cursor: pointer; transition: all .18s; white-space: nowrap; }
+  nav.tabs .tab, .archiveShelf .btn { min-height: 44px; font-weight: 600; }
+  .btn:hover { border-color: var(--ink); }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn:focus-visible, .tab:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px; }
+  .archiveShelf summary:focus-visible, .archiveShelf .btn:focus-visible, .archiveShelf input:focus-visible { outline-color: var(--accent-text); }
+  .btn.acc { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .btn.acc:hover { background: #000; }
+  .btn.live { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.ghost { border-color: transparent; color: var(--dim); }
+  .btn.ghost:hover { color: var(--ink); border-color: var(--line2); }
+  select, input[type=text], input[type=search] {
+    font: 13px var(--sans); color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line2); border-radius: 5px; padding: 6px 9px; max-width: 100%; }
+  textarea { width: 100%; font: 13px/1.6 var(--sans); color: var(--ink); background: var(--surface);
+             border: 1px solid var(--line2); border-radius: 5px; padding: 9px 11px;
+             resize: vertical; min-height: 64px; }
+  .splitReview { margin-top: 16px; padding: 12px; border: 1px solid var(--line2); border-left: 3px solid var(--accent); background: var(--surface); }
+  .splitReview .splitEvidence { color: var(--dim); font-size: 12px; margin: 6px 0 10px; }
+  .splitHalves { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .splitHalf { display: grid; gap: 6px; }
+  .splitHalf label { font: 10px var(--mono); text-transform: uppercase; color: var(--dim); }
+  .splitHalf input, .splitHalf textarea { width: 100%; }
+  .lbl { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .14em;
+         color: var(--dim); margin: 14px 0 6px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  /* ---------- songs layout ---------- */
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 36px; margin-top: 26px; }
+  @media (max-width: 1080px) { main { grid-template-columns: 1fr; } }
+  .songRow { display: grid; grid-template-columns: 52px 1fr auto auto auto; gap: 18px;
+             align-items: center; padding: 14px 14px 14px 6px; border-bottom: 1px solid var(--line);
+             cursor: pointer; transition: background .18s; border-radius: 4px; }
+  .songRow:hover { background: var(--surface); }
+  .songRow.open { background: var(--surface); border-bottom-color: transparent; }
+  .num { font: 600 22px/1 var(--mono); color: var(--faint); text-align: right;
+         transition: color .18s; font-variant-numeric: tabular-nums; }
+  .songRow:hover .num, .songRow.open .num { color: var(--accent); }
+  .titleCell { min-width: 0; }
+  .songName { font: 600 15px/1.3 var(--sans); letter-spacing: -0.01em; background: none;
+              border: none; color: var(--ink); width: 100%; padding: 0;
+              border-bottom: 1px dashed transparent; }
+  .songName::placeholder { color: var(--faint); font-weight: 400; font-style: italic; }
+  .songName:focus { outline: none; border-bottom-color: var(--accent); }
+  .meta2 { font: 11px/1.5 var(--mono); color: var(--dim); margin-top: 2px;
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bpmCell { font: 500 13px var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .bpmCell small { color: var(--dim); font-size: 9px; letter-spacing: .1em; }
+  svg.matrix { display: block; }
+  svg.matrix rect.bgcell { fill: var(--sunken); }
+  .rowActions { display: flex; gap: 6px; }
+  .playBtn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line2);
+             background: var(--surface); cursor: pointer; color: var(--ink); font-size: 11px;
+             transition: all .18s; display: grid; place-items: center; }
+  .playBtn:hover { border-color: var(--accent); color: var(--accent); }
+  .playBtn:active { transform: scale(.93); }
+  .playBtn.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* expanded detail */
+  .detail { background: var(--surface); border-bottom: 1px solid var(--line);
+            padding: 6px 20px 24px 76px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 30px;
+            animation: slideIn .22s ease; border-radius: 0 0 4px 4px; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(-4px); } }
+  @media (max-width: 900px) { .detail { grid-template-columns: 1fr; padding-left: 20px; } }
+  .patRow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pat { font: 500 11px var(--mono); border: 1px solid var(--line2); background: var(--bg);
+         border-radius: 4px; padding: 5px 10px; cursor: pointer; transition: all .18s; }
+  .pat:hover { border-color: var(--accent); color: var(--accent); }
+  .pat.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chain { font: 11px/1.8 var(--mono); color: var(--dim); }
+  .chain b { color: var(--ink); font-weight: 500; }
+  .kitGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .kitGrid label { display: block; }
+  .kitGrid .klbl { font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em;
+                   margin-bottom: 3px; display: block; }
+  .kitGrid select { width: 100%; font-size: 11px; padding: 4px 6px; }
+  audio { width: 100%; height: 32px; margin-top: 8px; filter: grayscale(.4); }
+  /* ---------- aside ---------- */
+  aside section { border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+                  padding: 18px; margin-bottom: 20px; }
+  aside h2 { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .16em;
+             color: var(--dim); margin-bottom: 4px; }
+  aside .desc { font: 11px/1.5 var(--sans); color: var(--dim); margin-bottom: 12px; }
+  .libItem { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .libItem:last-child { border-bottom: none; }
+  .libName { font: 600 13px var(--sans); }
+  .libName .flag { font: 500 9px var(--mono); text-transform: uppercase; letter-spacing: .1em;
+                   color: var(--accent); border: 1px solid currentColor; padding: 1px 5px;
+                   margin-left: 6px; vertical-align: 1px; }
+  .libName .flag.auto { color: var(--dim); }
+  .libSub { font: 10px/1.6 var(--mono); color: var(--dim); }
+  .libRow { display: flex; gap: 6px; margin-top: 7px; }
+  .libRow select { flex: 1; font-size: 11px; padding: 4px 6px; }
+  .empty { font: 12px/1.6 var(--sans); color: var(--dim); padding: 8px 0; }
+  /* ---------- archive shelf ---------- */
+  #view-archives { margin-top: 24px; }
+  .archiveIntro { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 16px; }
+  .archiveIntro h2 { font: 600 15px/1.3 var(--sans); }
+  .archiveIntro p { color: var(--dim); margin-top: 4px; }
+  .archiveCount { font: 600 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+  .archiveRow, .diagnosticRow { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); margin-bottom: 8px; overflow: clip; }
+  .archiveSummary { list-style: none; min-height: 88px; padding: 16px; cursor: pointer; display: grid;
+                    grid-template-columns: minmax(0, 1fr) 136px minmax(210px, auto) auto; gap: 16px; align-items: center; }
+  .archiveSummary:hover, details[open] > .archiveSummary { box-shadow: inset 2px 0 var(--accent); }
+  .archiveSummary::-webkit-details-marker, .diagnosticSummary::-webkit-details-marker { display: none; }
+  .archiveName, .archiveTags, .archiveFacts, .evidenceValue, .diagnosticSummary { overflow-wrap: anywhere; }
+  .archiveName { font: 600 15px/1.3 var(--sans); }
+  .archiveTags { font: 400 14px/1.5 var(--sans); color: var(--dim); margin-top: 4px; }
+  .archiveFacts { font: 600 10px/1.4 var(--mono); color: var(--dim); }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .badge { font: 600 10px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em;
+           border: 1px solid var(--line2); border-radius: 2px; padding: 4px 8px; }
+  .badge.verified { color: var(--accent-text); border-color: var(--accent); }
+  .chevron { font: 600 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+  .chevron::after { content: ' ▾'; }
+  details[open] > summary .chevron::after { content: ' ▴'; }
+  .archiveExpanded { border-top: 1px solid var(--line); padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; animation: slideIn .22s ease; }
+  .evidenceGroup h3 { font: 600 10px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px; }
+  .evidenceGroup p, .evidenceGroup li { font: 400 14px/1.5 var(--sans); margin: 4px 0; color: var(--dim); }
+  .evidenceGroup b { color: var(--ink); font-weight: 600; }
+  .evidenceValue code { font-family: var(--mono); overflow-wrap: anywhere; }
+  .evidenceScroll { max-width: 100%; overflow-x: auto; margin-top: 8px; }
+  .evidenceTable { border-collapse: collapse; min-width: 680px; width: 100%; font: 400 10px/1.4 var(--mono); }
+  .evidenceTable th, .evidenceTable td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; overflow-wrap: anywhere; }
+  .archiveDiagnostics { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line2); }
+  .archiveDiagnostics h2 { font: 600 15px/1.3 var(--sans); margin-bottom: 16px; }
+  .diagnosticSummary { list-style: none; min-height: 44px; padding: 16px; cursor: pointer; font: 400 14px/1.5 var(--sans); }
+  .diagnosticMeta { font: 600 10px/1.4 var(--mono); color: var(--dim); margin-top: 4px; }
+  .archiveError { border: 1px solid var(--ink); padding: 16px; margin-bottom: 16px; background: var(--surface); font: 400 14px/1.5 var(--sans); }
+  .archiveError .btn { margin-top: 8px; min-height: 44px; }
+  .restoreGroup { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 16px; }
+  .restoreGroup select { min-height: 44px; width: 100%; }
+  .restorePreview, .restoreResult { background: var(--sunken); padding: 12px; margin-top: 10px; overflow-wrap: anywhere; }
+  .manualFree { grid-column: 1 / -1; border: 1px solid var(--ink); border-radius: 8px; background: var(--sunken); padding: 16px; font: 400 14px/1.5 var(--sans); }
+  .manualFree h3 { font: 600 15px/1.3 var(--sans); margin-bottom: 8px; outline: none; }
+  .manualFree b { font-weight: 600; }
+  .manualWarning { border-left: 4px solid var(--ink); background: var(--surface); padding: 8px 12px; margin: 8px 0 16px; }
+  .manualResult { font: 400 14px/1.5 var(--sans); outline: none; }
+  .manualPrepare { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+  .manualFree ol { margin: 16px 0 0 24px; }
+  .manualFree li { margin: 16px 0; }
+  .manualFree label { display: flex; gap: 8px; align-items: start; min-height: 44px; }
+  .manualFree input { margin-top: 4px; }
+  @media (max-width: 900px) {
+    .archiveSummary { grid-template-columns: 1fr; }
+    .archiveExpanded { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding-left: 16px; padding-right: 16px; }
+    header { flex-wrap: wrap; }
+    nav.tabs { order: 3; margin-left: 0; width: 100%; flex-wrap: wrap; }
+    .archiveIntro { align-items: start; flex-direction: column; gap: 8px; }
+    .archiveShelf .btn { width: 100%; min-height: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, .detail, .archiveExpanded, .skel { animation: none !important; transition: none !important; }
+    .skel { background: var(--sunken); }
+  }
+  /* ---------- instruments ---------- */
+  #view-inst { display: none; margin-top: 26px; grid-template-columns: 1fr 340px; gap: 36px; }
+  #view-inst.on { display: grid; }
+  @media (max-width: 1150px) { #view-inst { grid-template-columns: 1fr; } }
+  table.inst { border-collapse: collapse; width: 100%; }
+  table.inst th { font: 500 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .12em;
+                  padding: 0 0 10px; text-align: left; }
+  table.inst th.rn { width: 30px; }
+  table.inst td { border: 1px solid var(--line); padding: 0; background: var(--surface); }
+  table.inst td.rn { border: none; background: none; font: 600 12px var(--mono);
+                     color: var(--faint); text-align: center; }
+  .cell { min-height: 44px; padding: 7px 9px; cursor: pointer; position: relative;
+          transition: background .15s; }
+  .cell:hover { background: var(--bg); }
+  .cell.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+  .cell .nm { font: 500 11.5px/1.3 var(--sans); overflow-wrap: anywhere; }
+  .cell .sub2 { font: 9px/1.4 var(--mono); color: var(--dim); }
+  .cell.emptyCell { color: var(--faint); font: italic 11px var(--sans); background: var(--sunken); }
+  .cell.auditioning { background: var(--ink); }
+  .cell.auditioning .nm, .cell.auditioning .sub2 { color: var(--bg); }
+  .instBar { display: flex; gap: 8px; align-items: center; margin: 14px 0 0; min-height: 34px;
+             flex-wrap: wrap; }
+  .instHint { font: 11px/1.5 var(--sans); color: var(--dim); }
+  /* pack browser */
+  .pkRow { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center;
+           padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .pkRow:last-child { border-bottom: none; }
+  .pkPlay { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line2);
+            background: var(--bg); cursor: pointer; font-size: 9px; transition: all .15s; }
+  .pkPlay:hover { border-color: var(--accent); color: var(--accent); }
+  .pkPlay.playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pkName { font: 500 12px var(--sans); }
+  .pkUser { font: 10px var(--mono); color: var(--dim); }
+  .pkType { font: 9px var(--mono); text-transform: uppercase; letter-spacing: .1em;
+            color: var(--dim); }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+           background: var(--ink); color: var(--bg); font: 500 12px var(--mono);
+           padding: 11px 20px; border-radius: 6px; display: none; z-index: 10;
+           box-shadow: 0 6px 24px rgba(40,36,25,.25); }
+  .skel { height: 54px; border-radius: 4px; background: linear-gradient(90deg, var(--sunken) 25%, var(--surface) 50%, var(--sunken) 75%);
+          background-size: 200% 100%; animation: sh 1.2s infinite; margin-bottom: 8px; }
+  @keyframes sh { to { background-position: -200% 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="mark"><div class="dot"></div><h1>OP–Z <em>manager</em></h1></div>
+  <nav class="tabs" role="tablist" aria-label="OP-Z Manager views">
+    <button class="tab active" id="tab-songs" role="tab" aria-controls="view-songs" aria-selected="true" tabindex="0" data-tab="songs" onclick="setTab('songs')" onkeydown="tabKey(event)">songs</button>
+    <button class="tab" id="tab-archives" role="tab" aria-controls="view-archives" aria-selected="false" tabindex="-1" data-tab="archives" onclick="setTab('archives')" onkeydown="tabKey(event)">archive shelf</button>
+    <button class="tab" id="tab-inst" role="tab" aria-controls="view-inst" aria-selected="false" tabindex="-1" data-tab="inst" onclick="setTab('inst')" onkeydown="tabKey(event)">instruments</button>
+  </nav>
+  <div id="source" role="status" aria-live="polite"></div>
+  <button class="iconbtn" onclick="load()" title="refresh">↻</button>
+</header>
+
+<main id="view-songs" role="tabpanel" aria-labelledby="tab-songs">
+  <div id="slots"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+  <aside>
+    <section>
+      <h2>library</h2>
+      <div class="desc">Songs saved off the device. Deep backups carry the full instrument setup for a complete reload.</div>
+      <div id="library"></div>
+    </section>
+    <section>
+      <h2>swap slots</h2>
+      <div class="libRow"><select id="swapA"></select><select id="swapB"></select>
+        <button class="btn" data-mutation="swap" onclick="doSwap()">swap</button></div>
+    </section>
+  </aside>
+</main>
+
+<section id="view-archives" class="archiveShelf" role="tabpanel" aria-labelledby="tab-archives" hidden>
+  <div id="archives" aria-busy="true"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+</section>
+
+<main id="view-inst" role="tabpanel" aria-labelledby="tab-inst" hidden>
+  <div>
+    <table class="inst" id="instTable"></table>
+    <div class="instBar" id="instBar">
+      <span class="instHint">Click a pack to audition it. Instrument changes return in Phase 3 with verified recovery. <span class="mono">~</span> marks factory content.</span>
+    </div>
+    <div class="instBar">
+      <button class="btn ghost" data-mutation="snapshot" onclick="snapshotInstruments()">snapshot all instruments → library</button>
+    </div>
+  </div>
+  <aside>
+    <section>
+      <h2>pack browser · op1.fun</h2>
+      <div class="desc">Community sample packs. Preview freely; downloading into a slot needs a free op1.fun account token.</div>
+      <div class="libRow">
+        <input type="search" id="pkQ" placeholder="search packs…" style="flex:1"
+               onkeydown="if(event.key==='Enter')browsePacks(1)">
+        <select id="pkType" onchange="browsePacks(1)">
+          <option value="drum">drum kits</option><option value="sampler">sampler</option><option value="">all</option>
+        </select>
+      </div>
+      <div id="pkList" style="margin-top:8px"><div class="empty">Search or browse to load packs.</div></div>
+      <div class="libRow" id="pkPager" style="display:none">
+        <button class="btn ghost" onclick="browsePacks(pkPage-1)">← prev</button>
+        <span class="mono" style="align-self:center;font-size:11px" id="pkPageLbl"></span>
+        <button class="btn ghost" onclick="browsePacks(pkPage+1)">next →</button>
+      </div>
+      <div class="lbl" style="cursor:pointer" onclick="document.getElementById('pkSettings').style.display=''">account ▸</div>
+      <div id="pkSettings" style="display:none">
+        <input type="text" id="op1email" placeholder="op1.fun email" style="width:100%;margin-bottom:6px">
+        <input type="password" id="op1token" autocomplete="new-password" placeholder="API token (op1.fun → settings)" style="width:100%;margin-bottom:6px">
+        <button class="btn" onclick="saveOp1Settings()">save</button>
+        <button class="btn ghost" onclick="clearOp1Token()">clear token</button>
+      </div>
+    </section>
+  </aside>
+</main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+let STATE = null, AIFS = null, SETTINGS = {}, mutationBusy = null, lastStatus = '';
+let shelfLoading = true, shelfError = '';
+const manualFreeState = new Map();
+const clearState = new Map();
+const restoreState = new Map();
+const splitReviewState = new Map();
+let expanded = JSON.parse(localStorage.getItem('opz.expanded') || 'null');
+let tab = localStorage.getItem('opz.tab') || 'songs';
+let selCell = null, pkPage = 1;
+
+const TYPES = ['1-kick','2-snare','3-perc','4-fx','5-bass','6-lead','7-arpeggio','8-chord'];
+const TYPE_LABELS = { '1-kick':'kick','2-snare':'snare','3-perc':'perc','4-fx':'fx',
+  '5-bass':'bass','6-lead':'lead','7-arpeggio':'arp','8-chord':'chord' };
+const TRACK_NAMES = ['kick','snare','hihat','sample','bass','lead','arp','chord'];
+const TRACK_TO_TYPE = { kick:'1-kick', snare:'2-snare', hihat:'3-perc', sample:'4-fx',
+  bass:'5-bass', lead:'6-lead', arp:'7-arpeggio', chord:'8-chord' };
+const TCOL = { kick:'var(--t-kick)', snare:'var(--t-snare)', hihat:'var(--t-hihat)', sample:'var(--t-sample)',
+  bass:'var(--t-bass)', lead:'var(--t-lead)', arp:'var(--t-arp)', chord:'var(--t-chord)' };
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  lastStatus = msg; t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3200);
+}
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: {'Content-Type':'application/json','X-OPZ-Mutation':'1'}, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (j.error) {
+    const message = [j.error, j.guidance || sourceGuidance(j.source, 'failure')].filter(Boolean).join(' · ');
+    const error = new Error(message); error.recovery = j.recovery; error.code = j.code; error.guidance = j.guidance;
+    toast(message); throw error;
+  }
+  return j;
+}
+async function runMutation(operation, callback) {
+  if (mutationBusy) return;
+  mutationBusy = { operation, source: STATE && STATE.source };
+  render();
+  try { return await callback(); }
+  finally {
+    mutationBusy = null;
+    render();
+  }
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+function attr(s) { return String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+function audioUrl(path, root) { return '/audio?path=' + encodeURIComponent(path) + (root === 'device' ? '&root=device' : ''); }
+function sourceGuidance(source, outcome) {
+  if (!source) return 'Reconnect the source, then refresh.';
+  if (source.device) return outcome === 'failure'
+    ? 'Reconnect the OP-Z, refresh, and retry.'
+    : 'Eject the OP-Z before disconnecting it; reconnect it and refresh before continuing.';
+  return 'No OP-Z changed. Refresh and retry with the local fixture.';
+}
+
+async function load() {
+  manualFreeState.clear();
+  if (typeof clearState !== 'undefined') clearState.clear();
+  restoreState.clear();
+  shelfLoading = true;
+  renderArchives();
+  try {
+    STATE = await api('/api/state');
+    shelfError = '';
+  } catch {
+    shelfError = 'Archive Shelf couldn’t be refreshed. Refresh to try again. Existing archives remain on this Mac.';
+    shelfLoading = false;
+    renderArchives();
+    return;
+  }
+  try { SETTINGS = await api('/api/settings'); } catch {}
+  shelfLoading = false;
+  render();
+}
+function setTab(t) {
+  const names = ['songs', 'archives', 'inst'];
+  if (!names.includes(t)) t = 'songs';
+  tab = t; localStorage.setItem('opz.tab', t);
+  for (const name of names) {
+    const active = name === t;
+    const button = document.getElementById('tab-' + name);
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
+    document.getElementById('view-' + name).hidden = !active;
+  }
+  document.getElementById('view-inst').classList.toggle('on', t === 'inst');
+}
+function tabKey(event) {
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const current = tabs.indexOf(event.currentTarget);
+  let next = current;
+  if (event.key === 'ArrowLeft') next = (current + tabs.length - 1) % tabs.length;
+  else if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = tabs.length - 1;
+  else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault(); setTab(event.currentTarget.dataset.tab); return;
+  } else return;
+  event.preventDefault();
+  tabs.forEach((button, index) => button.tabIndex = index === next ? 0 : -1);
+  tabs[next].focus();
+}
+
+function render() {
+  setTab(tab);
+  const srcEl = document.getElementById('source');
+  if (!STATE.source) srcEl.innerHTML = '<span class="st">no source — connect OP-Z in disk mode<br>(hold a track key while powering on)</span>';
+  else srcEl.innerHTML = STATE.source.device
+    ? '<span class="st on">mounted OP-Z · ' + esc(STATE.source.label) + '<br>archive reads device; device data will not change</span>'
+    : '<span class="st copy">local fixture · ' + esc(STATE.source.label) + '<br>no OP-Z data will change</span>';
+  const currentMutation = mutationBusy || STATE.mutation;
+  if (currentMutation) {
+    const activeSource = currentMutation.source || STATE.source || {};
+    const archiveMatch = /^archive slot (\d+)$/.exec(currentMutation.operation);
+    const activeLabel = archiveMatch ? 'archiving slot ' + archiveMatch[1].padStart(2, '0') + '…' : 'active: ' + currentMutation.operation;
+    srcEl.innerHTML += '<br><span class="active">' + esc(activeLabel) +
+      ' · ' + esc(activeSource.device ? 'mounted OP-Z' : 'local fixture') +
+      (activeSource.slot ? ' · slot ' + activeSource.slot : '') + '</span>';
+  }
+  if (lastStatus) srcEl.innerHTML += '<br><span class="result">' + esc(lastStatus) + '</span>';
+  renderSlots(); renderLibrary(); renderArchives(); renderInstruments();
+  document.querySelectorAll('[data-mutation]').forEach(button => {
+    button.disabled = Boolean(currentMutation) || button.dataset.mutation === 'unavailable';
+  });
+  for (const id of ['swapA','swapB']) document.getElementById(id).innerHTML = slotOptions();
+  if (SETTINGS.op1funEmail) document.getElementById('op1email').value = SETTINGS.op1funEmail;
+  document.getElementById('op1token').placeholder = SETTINGS.hasOp1funToken
+    ? 'token saved — enter a replacement'
+    : 'API token (op1.fun → settings)';
+}
+
+// ---------- step matrix (the "taste of the song") ----------
+function matrixSvg(s, w, label) {
+  // aggregate stepGrid across used patterns
+  const agg = Array.from({length: 8}, () => new Array(16).fill(0));
+  let max = 0;
+  for (const p of s.patterns) if (p.stepGrid) {
+    for (let t = 0; t < 8; t++) for (let st = 0; st < 16; st++) {
+      agg[t][st] += p.stepGrid[t][st];
+      if (agg[t][st] > max) max = agg[t][st];
+    }
+  }
+  const cw = 7, ch = 5, gap = 1.5;
+  const W = 16 * (cw + gap), H = 8 * (ch + gap);
+  let r = '<svg class="matrix" width="' + (w || W) + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + attr(label || 'pattern activity') + '">';
+  for (let t = 0; t < 8; t++) for (let st = 0; st < 16; st++) {
+    const v = agg[t][st];
+    const x = st * (cw + gap), y = t * (ch + gap);
+    if (!v) { r += '<rect class="bgcell" x="' + x + '" y="' + y + '" width="' + cw + '" height="' + ch + '" rx="1"/>'; continue; }
+    const op = 0.35 + 0.65 * Math.min(1, v / (max || 1));
+    r += '<rect x="' + x + '" y="' + y + '" width="' + cw + '" height="' + ch + '" rx="1" fill="' + TCOL[TRACK_NAMES[t]] + '" opacity="' + op.toFixed(2) + '"/>';
+  }
+  return r + '</svg>';
+}
+
+// ---------- songs ----------
+function renderSlots() {
+  const wrap = document.getElementById('slots');
+  wrap.innerHTML = '';
+  if (!STATE.slots.length) { wrap.innerHTML = '<div class="empty">No project source. Connect the OP-Z in disk mode and refresh.</div>'; return; }
+  for (const s of STATE.slots) {
+    const row = document.createElement('div');
+    if (s.empty || s.error) {
+      row.className = 'songRow';
+      row.innerHTML = '<div class="num">' + String(s.slot).padStart(2,'0') + '</div><div class="titleCell"><div class="meta2">' + (s.error ? 'unreadable — ' + esc(s.error) : 'empty') + '</div></div><div></div><div></div><div></div>';
+      wrap.appendChild(row); continue;
+    }
+    const name = s.meta && s.meta.name || '';
+    const tags = s.meta && s.meta.tags || '';
+    const chainStr = s.chains.length ? s.chains.map(c => c.patterns.map(p => p + 1).join('·')).join('  /  ') : '';
+    row.className = 'songRow' + (expanded === s.slot ? ' open' : '');
+    row.onclick = () => toggle(s.slot);
+    row.innerHTML =
+      '<div class="num">' + String(s.slot).padStart(2,'0') + '</div>' +
+      '<div class="titleCell">' +
+        '<input class="songName" placeholder="untitled" value="' + attr(name) + '" ' +
+          'onclick="event.stopPropagation()" onchange="saveMeta(\'' + s.hash + '\',{name:this.value})">' +
+        '<div class="meta2">' + s.usedPatterns.length + ' pat' + (chainStr ? ' · ' + chainStr : '') + (tags ? ' · ' + esc(tags) : '') + '</div>' +
+      '</div>' +
+      '<div>' + matrixSvg(s, 136) + '</div>' +
+      '<div class="bpmCell">' + s.tempo + '<small> BPM</small></div>' +
+      '<div class="rowActions" onclick="event.stopPropagation()">' +
+        '<button class="playBtn" id="play-' + s.slot + '" onclick="playSlot(' + s.slot + ')" title="sketch">▶</button>' +
+        (s.meta && s.meta.wav ? '<button class="playBtn" id="wavbtn-' + s.slot + '" onclick="toggleWav(' + s.slot + ')" title="recording">●</button>' : '') +
+      '</div>';
+    wrap.appendChild(row);
+    if (expanded === s.slot) {
+      const det = document.createElement('div');
+      det.className = 'detail';
+      det.innerHTML = detailHtml(s);
+      wrap.appendChild(det);
+    }
+  }
+}
+function aggTracksPresent(s) {
+  const set = new Set();
+  for (const p of s.patterns) for (const t of Object.keys(p.trackNotes)) set.add(t);
+  return TRACK_NAMES.filter(t => set.has(t));
+}
+function slotOptions() {
+  return STATE.slots.map(s => {
+    const nm = s.meta && s.meta.name ? ' — ' + s.meta.name : '';
+    return '<option value="' + s.slot + '">' + String(s.slot).padStart(2,'0') + esc(nm) + '</option>';
+  }).join('');
+}
+function kitOptions(track, sel) {
+  const type = TRACK_TO_TYPE[track];
+  const opts = ['<option value="">synth stand-in</option>'];
+  if (STATE.instruments && STATE.instruments[type]) {
+    STATE.instruments[type].forEach((it, i) => {
+      if (it && !it.engine && it.size) opts.push('<option value="' + (i + 1) + '"' + (sel == i + 1 ? ' selected' : '') + '>' + esc(it.name) + '</option>');
+    });
+  }
+  return opts.join('');
+}
+function detailHtml(s) {
+  const wavRoot = s.meta && s.meta.wavRoot === 'device' ? 'device' : 'music';
+  const recOpts = ['<option value="" data-path="" data-root="music">— none —</option>'].concat(
+    STATE.recordings.map(r => '<option value="' + attr(r.root + ':' + r.path) + '" data-path="' + attr(r.path) + '" data-root="' + r.root + '"' +
+      (s.meta && s.meta.wav === r.path && wavRoot === r.root ? ' selected' : '') + '>' +
+      esc(r.name) + (r.root === 'device' ? ' · on device' : '') + '</option>')).join('');
+  const pats = s.usedPatterns.map(i =>
+    '<span class="pat" id="pat-' + s.slot + '-' + i + '" onclick="event.stopPropagation();playPattern(' + s.slot + ',' + i + ')">▶ ' + String(i + 1).padStart(2,'0') + '</span>').join('');
+  const kit = (s.meta && s.meta.kit) || {};
+  const present = aggTracksPresent(s);
+  const kitSel = present.map(t =>
+    '<label><span class="klbl" style="color:' + TCOL[t] + '">' + t + '</span>' +
+    '<select onchange="setKit(\'' + s.hash + '\',\'' + t + '\',this.value)" onclick="event.stopPropagation()">' + kitOptions(t, kit[t]) + '</select></label>').join('');
+  const autoNote = s.meta && s.meta.wavMatch === 'auto-bpm' ? '<div class="libSub">auto-matched by BPM — change if wrong</div>' : '';
+  return '<div onclick="event.stopPropagation()">' +
+      '<div class="lbl">patterns — tap to hear</div><div class="patRow">' + pats + '</div>' +
+      '<div class="lbl">sketch instruments <span style="text-transform:none;letter-spacing:0">(real packs from the device)</span></div>' +
+      '<div class="kitGrid">' + kitSel + '</div>' +
+      '<div class="lbl">arrangement</div><div class="chain">' +
+        (s.chains.length ? s.chains.map(c => '<b>chain</b> ' + c.patterns.map(p => String(p + 1).padStart(2,'0')).join(' → ')).join('<br>') : 'no chains saved') + '</div>' +
+    '</div>' +
+    '<div onclick="event.stopPropagation()">' +
+      '<div class="lbl">recording</div>' +
+      '<select style="width:100%" onchange="setRecording(\'' + s.hash + '\',this)">' + recOpts + '</select>' + autoNote +
+      (s.meta && s.meta.wav ? '<audio id="wav-' + s.slot + '" preload="none" src="' + attr(audioUrl(s.meta.wav, wavRoot)) + '"></audio>' : '') +
+      '<div class="lbl">tags</div>' +
+      '<input type="text" style="width:100%" placeholder="handpan, ambient, wip…" value="' + attr(s.meta && s.meta.tags || '') + '" ' +
+        'onchange="saveMeta(\'' + s.hash + '\',{tags:this.value})">' +
+      '<div class="lbl">notes</div>' +
+      '<textarea placeholder="Where you left off, what to try next…" ' +
+        'onchange="saveMeta(\'' + s.hash + '\',{notes:this.value})">' + esc(s.meta && s.meta.notes || '') + '</textarea>' +
+      '<div class="lbl">library</div>' +
+      '<button class="btn acc" data-mutation="archive" onclick="backup(' + s.slot + ')">archive complete song</button>' +
+      splitReviewHtml(s) +
+    '</div>';
+}
+function splitReviewHtml(s) {
+  const review = s.splitReview;
+  if (!review || !review.suggested) return '';
+  if (review.confirmed) return '<section class="splitReview" aria-label="confirmed split archive actions" onclick="event.stopPropagation()"><h3>confirmed split intent</h3><p class="splitEvidence">Archive either half as a verified local bundle. Restore remains locked until sacrificial-device acceptance.</p><div class="splitHalves">' + review.confirmed.halves.map((half, i) => '<button class="btn acc" data-mutation="split-archive" onclick="archiveSplit(' + s.slot + ',' + i + ')">archive ' + esc(half.name) + '</button>').join(' ') + '</div></section>';
+  const local = splitReviewState.get(s.slot) || { names: ['', ''], memberships: review.memberships.map(p => p.slice()) };
+  const evidence = review.evidence;
+  const chainText = evidence.chains.map(c => 'chain ' + (c.index + 1) + ': ' + c.patterns.map(p => p + 1).join(', ')).join(' · ');
+  const clusterText = evidence.patternClusters.map(c => c.patterns.map(p => p + 1).join(', ')).join(' / ');
+  return '<section class="splitReview" aria-labelledby="split-title-' + s.slot + '" onclick="event.stopPropagation()">' +
+    '<h3 id="split-title-' + s.slot + '">possible two-song split · review</h3>' +
+    '<p class="splitEvidence">Evidence: ' + esc(chainText) + '. Pattern clusters: ' + esc(clusterText) + '. ' +
+      (evidence.differingProfiles ? 'Track profiles differ.' : 'Track profiles provide limited separation.') + '</p>' +
+    '<div class="splitHalves">' + [0, 1].map(i =>
+      '<div class="splitHalf"><label for="split-name-' + s.slot + '-' + i + '">half ' + (i + 1) + ' name</label>' +
+      '<input id="split-name-' + s.slot + '-' + i + '" value="' + attr(local.names[i] || '') + '" maxlength="80" placeholder="name before confirming" ' +
+      'oninput="updateSplit(' + s.slot + ',' + i + ',\'name\',this.value)">' +
+      '<label for="split-patterns-' + s.slot + '-' + i + '">patterns (1–16, comma separated)</label>' +
+      '<input id="split-patterns-' + s.slot + '-' + i + '" value="' + attr(local.memberships[i].map(p => p + 1).join(', ')) + '" inputmode="numeric" ' +
+      'oninput="updateSplit(' + s.slot + ',' + i + ',\'patterns\',this.value)"></div>').join('') +
+    '</div><div style="margin-top:10px"><button class="btn acc" data-mutation="split-confirm" onclick="confirmSplit(' + s.slot + ')">confirm split intent</button> ' +
+    '<button class="btn ghost" onclick="rejectSplit(' + s.slot + ')">reject</button></div></section>';
+}
+async function archiveSplit(slot, half) {
+  const s = STATE.slots.find(item => item.slot === slot);
+  if (!s || !s.splitReview.confirmed) return;
+  await runMutation('archive split half', async () => {
+    const result = await api('/api/split/archive', { parentHash: s.sha256, half });
+    await load(); setTab('archives');
+    toast(result.restoreEligible ? 'verified split archive accepted' : 'verified split archive saved · hardware acceptance pending');
+  });
+}
+async function acceptSplit(file, auto) {
+  const checks = [...document.querySelectorAll('[data-split-acceptance]')]
+    .filter(input => input.dataset.splitAcceptance === file);
+  if (checks.length !== 5 || checks.some(input => !input.checked)) return toast('confirm all five observed hardware outcomes first');
+  const outcomes = Object.fromEntries(checks.map(input => [input.value, true]));
+  try {
+    await runMutation('record split hardware acceptance', () => api('/api/split/acceptance', { file, auto, outcomes }));
+    toast('split hardware acceptance recorded'); await load(); setTab('archives');
+  } catch {}
+}
+function updateSplit(slot, index, key, value) {
+  const current = splitReviewState.get(slot) || { names: ['', ''], memberships: [[], []] };
+  if (key === 'name') current.names[index] = value;
+  else current.memberships[index] = value.split(',').map(v => Number(v.trim()) - 1).filter(Number.isInteger);
+  splitReviewState.set(slot, current);
+}
+async function confirmSplit(slot) {
+  const s = STATE.slots.find(item => item.slot === slot), local = splitReviewState.get(slot);
+  if (!s || !local) return toast('review both halves before confirming');
+  try {
+    await runMutation('confirm split intent', () => api('/api/split/confirm', { parentHash: s.sha256, halves: local.memberships.map((patterns, i) => ({ name: local.names[i], patterns })) }));
+    splitReviewState.delete(slot); toast('split intent confirmed'); await load();
+  } catch {}
+}
+function rejectSplit(slot) { splitReviewState.delete(slot); toast('split suggestion rejected'); render(); }
+function toggle(slot) {
+  stopSketch();
+  expanded = expanded === slot ? null : slot;
+  localStorage.setItem('opz.expanded', JSON.stringify(expanded));
+  render();
+}
+async function saveMeta(hash, fields) {
+  await api('/api/meta', { hash, fields });
+  const s = STATE.slots.find(x => x.hash === hash);
+  if (s) s.meta = { ...(s.meta || {}), ...fields };
+  render();
+}
+function setRecording(hash, select) {
+  const option = select.selectedOptions[0];
+  saveMeta(hash, { wav: option.dataset.path, wavRoot: option.dataset.root, wavMatch: 'manual' });
+}
+async function setKit(hash, track, val) {
+  const s = STATE.slots.find(x => x.hash === hash);
+  const kit = { ...((s.meta && s.meta.kit) || {}) };
+  if (val) kit[track] = parseInt(val, 10); else delete kit[track];
+  packBuffers.clear();
+  await saveMeta(hash, { kit });
+}
+function countLabel(count, singular) { return count + ' ' + singular + (count === 1 ? '' : 's'); }
+async function backup(slot) {
+  const s = STATE.slots.find(x => x.slot === slot);
+  const name = prompt('Name for the library:', s.meta && s.meta.name || '');
+  if (name === null) return;
+  const source = STATE.source ? STATE.source.label : 'no source';
+  const song = s.meta && s.meta.name || name || 'untitled';
+  if (!confirm('Archive slot ' + String(slot).padStart(2, '0') + ' — complete song "' + song + '"?\nSource: ' + source +
+      '\ncomplete sample-pack grid: included.\nDevice data will not change.')) return;
+  await runMutation('archive slot ' + slot, async () => {
+    const r = await api('/api/backup', { slot, name, deep: true });
+    await load();
+    setTab('archives');
+    toast('verified archive created · open Archive Shelf');
+    const summary = [...document.querySelectorAll('[data-archive-id]')]
+      .find(element => element.dataset.archiveId === r.file);
+    if (summary) summary.focus();
+  });
+}
+function renderLibrary() {
+  const lib = document.getElementById('library');
+  const shelf = STATE.archiveShelf;
+  lib.innerHTML = '<div class="libSub">' + esc(countLabel(shelf.verifiedCount, 'verified archive')) + '</div>' +
+    '<div class="libSub">' + esc(countLabel(shelf.diagnosticCount, 'archive diagnostic')) + '</div>' +
+    '<button class="btn" style="margin-top:10px;min-height:44px" onclick="setTab(\'archives\')">open archive shelf</button>';
+}
+function renderArchives() {
+  const root = document.getElementById('archives');
+  if (!root) return;
+  if (shelfLoading && !STATE) {
+    root.setAttribute('aria-busy', 'true');
+    root.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+    return;
+  }
+  root.setAttribute('aria-busy', String(shelfLoading));
+  const shelf = STATE && STATE.archiveShelf || { verified: [], diagnostics: [], verifiedCount: 0, diagnosticCount: 0 };
+  const errorMarkup = shelfError ? '<div class="archiveError" role="status" aria-live="polite">' + esc(shelfError) +
+    '<br><button class="btn" onclick="load()">refresh</button></div>' : '';
+  const clearStatusMarkup = STATE && STATE.clearStatus ? '<div class="manualResult" role="status" aria-live="polite"><b>Automatic clear:</b> ' +
+    esc(STATE.clearStatus.guidance) + '</div>' : '';
+  const verifiedMarkup = shelf.verified.length ? shelf.verified.map(item => {
+    const songName = item.metadata.name || 'untitled';
+    const nameMarkup = esc(songName);
+    const tagsMarkup = item.metadata.tags ? esc(item.metadata.tags) : 'Not recorded';
+    const sourceKind = item.source.device ? 'mounted OP-Z' : 'local fixture';
+    const snippetLabel = item.snippet.status === 'included' ? 'snippet included'
+      : item.snippet.status === 'unlinked' ? 'no snippet linked'
+      : item.snippet.status === 'missing' ? 'snippet missing' : 'snippet unavailable';
+    const chainText = item.chains.length
+      ? item.chains.map(chain => chain.patterns.map(pattern => pattern + 1).join('·')).join(' / ')
+      : 'Not recorded';
+    const patternText = item.usedPatterns.length ? item.usedPatterns.map(pattern => pattern + 1).join(', ') : 'Not recorded';
+    const trackText = TYPES.map(type => TYPE_LABELS[type] + ': ' + item.samplepacks.summary.perTrack[type].files +
+      ' files / ' + item.samplepacks.summary.perTrack[type].bytes + ' bytes').join(' · ');
+    const fileRows = item.samplepacks.files.map(file => '<tr><td>' + esc(file.path) + '</td><td>' +
+      esc(file.type ? TYPE_LABELS[file.type] : 'unknown') + '</td><td>' + esc(file.slot === null ? 'Not recorded' : file.slot) +
+      '</td><td>' + esc(file.bytes) + '</td><td><code>' + esc(file.sha256) + '</code></td></tr>').join('');
+    const fileEvidence = '<details><summary>sample-pack file evidence (' + item.samplepacks.summary.fileCount + ')</summary>' +
+      '<div class="evidenceScroll"><table class="evidenceTable"><thead><tr><th>path</th><th>track</th><th>slot</th><th>bytes</th><th>SHA-256</th></tr></thead>' +
+      '<tbody>' + fileRows + '</tbody></table></div></details>';
+    const snippetEvidence = item.snippet.status === 'included'
+      ? '<p class="evidenceValue"><b>Snippet:</b> ' + esc(item.snippet.status) + ' · ' + esc(item.snippet.path) +
+        ' · <code>' + esc(item.snippet.sha256) + '</code> · ' + esc(item.snippet.bytes) + ' bytes</p>'
+      : '<p><b>Snippet:</b> ' + esc(item.snippet.status) + '</p>';
+    const fileArg = attr(JSON.stringify(item.id));
+    const liveSource = STATE.source || {};
+    const slotFacts = STATE.slots || [];
+    const restore = restoreState.get(item.id);
+    const target = restore && slotFacts.find(slot => slot.slot === restore.slot);
+    const targetName = target && target.meta && target.meta.name || 'untitled';
+    const targetReady = Boolean(target && target.sourceToken && (target.empty || target.sha256) && item.restoreEligible && item.archiveRevision);
+    const splitAcceptance = item.split && !item.restoreEligible
+      ? '<section class="manualFree" aria-label="Split hardware acceptance"><h3>Five observed hardware outcomes</h3>' +
+        '<p>Only check outcomes you personally observed on the real OP-Z for this synthesized project.</p>' +
+        ['eject','reconnect','rejection','playback','recovery'].map(outcome => '<label><input type="checkbox" data-split-acceptance="' + attr(item.id) + '" value="' + outcome + '"> ' + esc(outcome) + '</label>').join('') +
+        '<button class="btn" data-mutation="split-acceptance" onclick="acceptSplit(' + fileArg + ',' + item.auto + ')">record hardware acceptance</button></section>' : '';
+    const splitStatus = item.split ? '<p><b>Split archive:</b> ' + esc(item.restoreEligible ? 'hardware accepted' : (item.restoreReason || 'pending sacrificial-device acceptance')) + '</p>' +
+      '<p><b>Parent SHA-256:</b> <code>' + esc(item.split.parentSha256) + '</code><br><b>Retained patterns:</b> ' + esc(item.split.patterns.map(pattern => pattern + 1).join(', ')) + '</p>' + splitAcceptance : '';
+    const restoreOptions = '<option value="">choose a slot…</option>' + slotFacts.map(slot =>
+      '<option value="' + slot.slot + '"' + (restore && restore.slot === slot.slot ? ' selected' : '') + '>slot ' + String(slot.slot).padStart(2, '0') + '</option>').join('');
+    const targetPreview = target ? (targetReady
+      ? target.empty
+        ? '<div class="restorePreview" tabindex="-1" data-restore-preview="' + attr(item.id) + '"><b>slot ' + esc(String(target.slot).padStart(2, '0')) + ' · empty</b><br>' +
+          esc(liveSource.device ? 'mounted OP-Z' : 'local fixture') + ' · ' + esc(liveSource.label || 'unknown source') + '<br>No project will be overwritten, so no target backup is needed.</div>'
+        : '<div class="restorePreview" tabindex="-1" data-restore-preview="' + attr(item.id) + '"><b>slot ' + esc(String(target.slot).padStart(2, '0')) + ' · ' + esc(targetName) + '</b><br>' +
+        esc(liveSource.device ? 'mounted OP-Z' : 'local fixture') + ' · ' + esc(liveSource.label || 'unknown source') + '<br><code>' + esc(target.sha256.slice(0, 16)) + '</code> · ' + esc(target.bytes) + ' bytes · ' + esc(new Date(target.modified).toLocaleString()) + '<br>' +
+        esc(target.tempo) + ' BPM ' + matrixSvg(target, 136, 'Current step activity matrix for slot ' + target.slot) + '<br>A verified automatic backup will be created before this slot changes.</div>'
+      : '<div class="restoreResult" role="alert">Slot ' + esc(String(target.slot).padStart(2, '0')) + ' cannot be read safely. Refresh and review it again.</div>') : '';
+    const restoreResult = restore && restore.result ? '<div class="restoreResult" role="alert" tabindex="-1" data-restore-result="' + attr(item.id) + '">' + esc(restore.result) + '</div>' : '';
+    const gridSource = slotFacts.find(slot => slot.sourceToken);
+    const gridReady = Boolean(item.verified && item.samplepacks && item.samplepacks.captured && item.archiveRevision && gridSource && gridSource.sourceToken);
+    const gridAction = '<section class="restoreGroup" aria-label="Whole grid restore"><h3>Instrument grid</h3><p>Restore the complete archived sample-pack grid. Projects do not change.</p><button class="btn" data-mutation="restore-grid" ' + (gridReady ? '' : 'disabled ') + 'onclick="restoreGrid(' + fileArg + ',' + item.auto + ')">restore whole instrument grid</button>' + (restore && restore.gridResult ? '<div class="restoreResult" role="alert" tabindex="-1" data-grid-result="' + attr(item.id) + '">' + esc(restore.gridResult) + '</div>' : '') + '</section>';
+    const restoreAction = '<section class="restoreGroup" aria-label="Restore"><h3>Restore</h3><label class="lbl" for="restore-target-' + attr(item.id) + '">restore to slot</label>' +
+      '<select id="restore-target-' + attr(item.id) + '" onchange="selectRestoreTarget(' + fileArg + ',' + item.auto + ',this.value)">' + restoreOptions + '</select>' + targetPreview +
+      '<button class="btn live" data-mutation="restore" ' + (targetReady ? '' : 'disabled ') + 'onclick="restoreProject(' + fileArg + ',' + item.auto + ')">restore project</button>' + restoreResult + '</section>' + gridAction;
+    const manual = manualFreeState.get(item.id);
+    const slot = item.source.slot;
+    const paddedSlot = String(slot).padStart(2, '0');
+    const valueKey = slot === 10 ? 0 : slot;
+    const identity = 'archive ' + item.id + ' · “' + songName + '” · slot ' + paddedSlot + ' · ' + item.source.label;
+    const resultCopy = manual && manual.relation === 'archived_song_present'
+      ? 'Slot ' + paddedSlot + ' still contains “' + songName + '”. Nothing was removed by OP-Z Manager. Repeat the on-device clear steps when ready.'
+      : manual && manual.relation === 'unexpected_non_empty_replacement'
+        ? 'Slot ' + paddedSlot + ' for “' + songName + '” changed but is not empty. Stop here. The archive remains retained; review the device before doing anything else.'
+        : manual && manual.relation === 'mount_unavailable'
+          ? 'The OP-Z is not available for confirmation of slot ' + paddedSlot + ' (“' + songName + '”). Reconnect it in content mode, then refresh and verify slot ' + paddedSlot + '.'
+          : 'Slot ' + paddedSlot + ' could not be classified for “' + songName + '”. Do not assume it is empty. The archive remains retained.';
+    const preflightFailure = 'Manual freeing stopped. The archive or mounted source no longer matches. Reconnect the original OP–Z, refresh, and try again. The archive remains on this Mac.';
+    const stop = manual && !manual.eligible
+      ? '<div class="manualResult" role="alert" tabindex="-1" ' + (manual.stage === 'result' ? 'data-manual-result' : 'data-manual-focus') + '="' + attr(item.id) + '">' + esc(manual.stage === 'result' ? resultCopy : preflightFailure) + '</div>' : '';
+    const result = manual && manual.stage === 'result' && manual.eligible
+      ? '<div class="manualResult" role="alert" tabindex="-1" data-manual-result="' + attr(item.id) + '">' + esc(resultCopy) + '</div>' : '';
+    const checklist = item.manualFreeEligible && manual && manual.eligible
+      ? '<section class="manualFree" aria-label="Manual freeing checklist"><h3 tabindex="-1" data-manual-focus="' + attr(item.id) + '">Manual freeing checklist</h3>' +
+        '<p class="manualWarning"><b>You are about to clear slot ' + esc(paddedSlot) + ' on the OP–Z itself.</b> OP-Z Manager will not delete or change device files.</p>' +
+        '<p><b>Exact identity:</b> ' + esc(identity) + '</p>' +
+        '<label><input type="checkbox" onchange="acknowledgeManualFree(' + fileArg + ',this.checked)"> I confirmed slot ' + esc(paddedSlot) + ' is “' + nameMarkup + '” on this OP–Z.</label>' +
+        '<ol><li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Safely eject.</b> Eject the OP-Z disk in Finder, or press play while it is in content/boot mode. Wait for the disk to disappear and the OP-Z to finish syncing/restarting before unplugging USB or powering off.</span></label></li>' +
+        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Select the archived project.</b> Disconnect USB if needed. On the OP-Z, hold project and press value key ' + esc(valueKey) + ' to select slot ' + esc(paddedSlot) + '. Confirm the song before continuing.</span></label></li>' +
+        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Clear the project on the device.</b> Hold project + stop + shift to clear the entire selected project.</span></label></li>' +
+        '<li><label><input type="checkbox" disabled data-manual-control="' + attr(item.id) + '"><span><b>Reconnect in content mode.</b> Power the OP-Z off. Hold track while turning it on, connect USB, and wait for the OP-Z disk to mount.</span></label></li>' +
+        '<li><button class="btn" disabled data-manual-control="' + attr(item.id) + '" onclick="refreshManualFree(' + fileArg + ')">refresh and verify slot</button></li></ol>' + result + '</section>' : stop;
+    const ineligibleCopy = item.manualFreeRelation === 'archive_incomplete'
+      ? 'Manual freeing is unavailable until the project, whole sample-pack grid, metadata, and snippet status are portable and verified.'
+      : 'Connect the original OP–Z in content mode, then refresh. The mounted slot must still match this archive.';
+    const manualAction = item.manualFreeEligible
+      ? '<p><b>Manual-free eligibility:</b> current exact match</p><button class="btn manualPrepare" onclick="prepareManualFree(' + fileArg + ',this)">prepare manual freeing</button>'
+      : '<p><b>Manual-free eligibility:</b> unavailable</p><p>' + esc(ineligibleCopy) + '</p>';
+    const currentSlot = slotFacts.find(entry => entry.slot === slot);
+    const clear = typeof clearState === 'undefined' ? null : clearState.get(item.id);
+    const clearAction = STATE.clearEnabled === true && item.complete && item.source.device && currentSlot && currentSlot.sha256
+      ? '<p><b>Automatic clearing:</b> exact acceptance method enabled</p><button class="btn live" data-mutation="clear" onclick="clearProject(' + fileArg + ',' + item.auto + ')">archive and clear slot</button>' +
+        (clear ? '<div class="manualResult" role="alert" tabindex="-1">' + esc(clear.guidance || 'Automatic clearing was not confirmed. The recovery archive remains retained.') + '</div>' : '')
+      : '<p><b>Automatic clearing:</b> unavailable; use the manual-free checklist.</p>';
+    return '<details class="archiveRow"><summary class="archiveSummary" data-archive-id="' + attr(item.id) + '">' +
+      '<div><div class="archiveName">' + nameMarkup + '</div><div class="archiveTags">' + tagsMarkup + '</div></div>' +
+      matrixSvg(item, 136, 'Step activity matrix for “' + (item.metadata.name || 'untitled') + '”') +
+      '<div class="archiveFacts">slot ' + String(item.source.slot).padStart(2, '0') + ' · ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
+      '<br><time datetime="' + attr(item.created) + '">' + esc(new Date(item.created).toLocaleString()) + '</time>' +
+      '<div class="badges"><span class="badge verified">verified</span><span class="badge">' + (item.complete ? 'complete' : 'project only') +
+      '</span><span class="badge">' + esc(snippetLabel) + '</span></div></div><span class="chevron">evidence</span></summary>' +
+      '<div class="archiveExpanded">' +
+      '<section class="evidenceGroup"><h3>Project verification</h3>' +
+      '<p><b>Schema:</b> <code>' + esc(item.schemaVersion) + '</code></p><p class="evidenceValue"><b>Path:</b> <code>' + esc(item.project.path) +
+      '</code></p><p class="evidenceValue"><b>SHA-256:</b> <code>' + esc(item.project.sha256) + '</code></p><p><b>Bytes:</b> <code>' + esc(item.project.bytes) +
+      '</code></p><p><b>Stored-byte match:</b> yes</p><p><b>Parsed:</b> yes</p><p><b>Verified:</b> <time datetime="' + attr(item.project.checked) + '">' +
+      esc(new Date(item.project.checked).toLocaleString()) + '</time></p></section>' +
+      '<section class="evidenceGroup"><h3>Song snapshot</h3><p><b>Name:</b> ' + nameMarkup + '</p><p><b>Tags:</b> ' + tagsMarkup +
+      '</p><p><b>Notes:</b> ' + (item.metadata.notes ? esc(item.metadata.notes) : 'Not recorded') + '</p><p><b>Tempo:</b> ' + esc(item.tempo) +
+      ' BPM</p><p><b>Used patterns:</b> ' + esc(patternText) + '</p><p><b>Chains:</b> ' + esc(chainText) + '</p>' +
+      matrixSvg(item, 272, 'Full step activity matrix for “' + (item.metadata.name || 'untitled') + '”') + '</section>' +
+      '<section class="evidenceGroup"><h3>Portability</h3>' + snippetEvidence + '<p><b>Whole grid:</b> ' +
+      (item.samplepacks.captured ? 'captured and verified' : 'not captured') + '</p><p><b>Files:</b> ' + item.samplepacks.summary.fileCount +
+      ' · <b>Total bytes:</b> ' + item.samplepacks.summary.totalBytes + '</p><p class="evidenceValue">' + esc(trackText) + '</p>' + fileEvidence + '</section>' +
+      '<section class="evidenceGroup"><h3>Provenance and action</h3>' + splitStatus + '<p><b>Source:</b> ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
+      '</p><p><b>Source slot:</b> ' + esc(String(item.source.slot).padStart(2, '0')) + '</p><p><b>Created:</b> <time datetime="' + attr(item.created) + '">' +
+      esc(new Date(item.created).toLocaleString()) + '</time></p>' + clearAction + manualAction + '</section>' + restoreAction + checklist +
+      '</div></details>';
+  }).join('') : '<div class="empty"><b>No verified archives yet</b><br>Open a song, then choose “archive complete song”.</div>';
+  const diagnosticMarkup = shelf.diagnostics.length ? shelf.diagnostics.map(item => '<details class="diagnosticRow"><summary class="diagnosticSummary">' +
+    '<span class="badge">needs attention</span> ' + esc(item.name || item.id) + '<div class="diagnosticMeta">' + esc(item.category) + ' · ' + esc(item.reason) +
+    (item.created ? ' · <time datetime="' + attr(item.created) + '">' + esc(new Date(item.created).toLocaleString()) + '</time>' : '') +
+    (item.source ? ' · slot ' + esc(String(item.source.slot || 'unknown').padStart(2, '0')) + ' · ' + esc(item.source.device ? 'mounted OP-Z' : 'local fixture') + ' · ' + esc(item.source.label) : '') +
+    '</div></summary><div class="archiveExpanded"><section class="evidenceGroup"><h3>Sanitized evidence</h3><p><b>Reason:</b> <code>' + esc(item.reason) + '</code></p></section></div></details>').join('') : '<div class="empty">No archive diagnostics.</div>';
+  root.innerHTML = errorMarkup + clearStatusMarkup + '<div class="archiveIntro"><div><h2>Verified archives</h2><p>Stored-byte evidence for songs retained on this Mac.</p></div>' +
+    '<div class="archiveCount" aria-live="polite">' + esc(countLabel(shelf.verifiedCount, 'verified archive')) + '</div></div>' + verifiedMarkup +
+    '<section class="archiveDiagnostics" aria-labelledby="archiveDiagnosticsHeading"><h2 id="archiveDiagnosticsHeading">Archive diagnostics</h2>' +
+    '<div class="archiveCount">' + esc(countLabel(shelf.diagnosticCount, 'archive diagnostic')) + '</div>' + diagnosticMarkup + '</section>';
+}
+async function clearProject(file, auto) {
+  const item = STATE.archiveShelf.verified.find(entry => entry.id === file && entry.auto === auto);
+  const slot = item && STATE.slots.find(entry => entry.slot === item.source.slot);
+  if (!item || !slot || !STATE.clearEnabled || !slot.sourceToken) return toast('automatic clearing is unavailable');
+  if (!confirm('Archive and clear slot ' + String(slot.slot).padStart(2, '0') + '? The verified recovery archive will be retained.')) return;
+  try {
+    const result = await runMutation('archiving and clearing slot ' + String(slot.slot).padStart(2, '0') + '…', () => api('/api/clear-slot', {
+      file, auto, archiveRevision: item.archiveRevision, slot: slot.slot,
+      targetFingerprint: { sha256: slot.sha256, bytes: slot.bytes }, sourceToken: slot.sourceToken,
+    }));
+    clearState.set(file, result); toast('clear staged · eject, refresh while absent, reconnect, refresh'); await load();
+  } catch (error) { clearState.set(file, error); renderArchives(); }
+}
+async function prepareManualFree(file, button) {
+  button.disabled = true;
+  button.textContent = 'checking…';
+  button.setAttribute('aria-busy', 'true');
+  try {
+    const result = await api('/api/manual-free?file=' + encodeURIComponent(file));
+    manualFreeState.set(file, { ...result, stage: result.eligible ? 'checklist' : 'stop' });
+  } catch {
+    manualFreeState.set(file, { eligible: false, relation: 'unclassified',
+      guidance: 'Preflight stopped safely. Reconnect the original OP-Z and refresh. The archive remains retained.', stage: 'stop' });
+  }
+  renderArchives();
+  const focus = [...document.querySelectorAll('[data-manual-focus]')].find(element => element.dataset.manualFocus === file);
+  if (focus) focus.focus();
+}
+function acknowledgeManualFree(file, checked) {
+  document.querySelectorAll('[data-manual-control]').forEach(control => {
+    if (control.dataset.manualControl === file) control.disabled = !checked;
+  });
+}
+async function refreshManualFree(file) {
+  let result;
+  try {
+    result = await api('/api/manual-free?file=' + encodeURIComponent(file));
+    manualFreeState.set(file, { ...result, stage: 'result' });
+  } catch {
+    result = { eligible: false, relation: 'unclassified',
+      guidance: 'Refresh stopped safely because the archive or source could not be revalidated. The archive remains retained.' };
+    manualFreeState.set(file, { ...result, stage: 'result' });
+  }
+  renderArchives();
+  const focus = [...document.querySelectorAll('.manualResult[data-manual-result]')].find(element => element.dataset.manualResult === file);
+  if (focus) focus.focus();
+  toast(result.relation === 'archived_song_present' ? 'archived song still present' : result.guidance);
+}
+function selectRestoreTarget(file, auto, value) {
+  const slot = Number(value);
+  restoreState.set(file, Number.isInteger(slot) && slot >= 1 && slot <= 10 ? { slot } : {});
+  renderArchives();
+  const preview = [...document.querySelectorAll('[data-restore-preview]')].find(element => element.dataset.restorePreview === file);
+  if (preview) preview.focus();
+}
+async function restoreProject(file, auto) {
+  const item = STATE.archiveShelf.verified.find(entry => entry.id === file && entry.auto === auto);
+  const restore = restoreState.get(file);
+  const target = restore && STATE.slots.find(slot => slot.slot === restore.slot);
+  if (!item || !target || !target.sourceToken || (!target.empty && !target.sha256)) return;
+  const name = item.metadata.name || 'untitled';
+  const targetName = target.meta && target.meta.name || 'untitled';
+  const padded = String(target.slot).padStart(2, '0');
+  const question = target.empty
+    ? 'Restore “' + name + '” to empty slot ' + padded + '? No project will be overwritten. Instruments will not change.'
+    : 'Restore “' + name + '” to slot ' + padded + ', replacing “' + targetName + '”? A verified automatic backup of slot ' + padded + ' will be retained. Instruments will not change.';
+  if (!confirm(question)) return;
+  try {
+    await runMutation('protecting and restoring slot ' + padded + '…', () => api('/api/restore', {
+      file, auto, archiveRevision: item.archiveRevision, slot: target.slot,
+      targetFingerprint: target.empty ? null : { sha256: target.sha256, bytes: target.bytes }, sourceToken: target.sourceToken,
+    }));
+    await load();
+    restoreState.set(file, { slot: target.slot, result: target.empty ? 'restore verified · no overwrite backup was needed' : 'restore verified · recovery retained' });
+    renderArchives();
+  } catch (error) {
+    const recovery = error.recovery ? ' Recovery ' + error.recovery.id + ' is retained.' : '';
+    restoreState.set(file, { slot: target.slot, result: 'restore did not complete. ' + (error.guidance || '') + recovery });
+    renderArchives();
+  }
+  const result = [...document.querySelectorAll('[data-restore-result]')].find(element => element.dataset.restoreResult === file);
+  if (result) result.focus();
+}
+async function restoreGrid(file, auto) {
+  const item = STATE.archiveShelf.verified.find(entry => entry.id === file && entry.auto === auto);
+  const sourceSlot = STATE.slots.find(slot => slot.sourceToken);
+  if (!item || !item.verified || !item.samplepacks.captured || !sourceSlot) return;
+  if (!confirm('Restore the complete archived instrument grid from “' + (item.metadata.name || 'untitled') + '”? Projects do not change. A verified recovery of the current grid will be retained first.')) return;
+  try {
+    await runMutation('protecting and restoring the whole instrument grid …', () => api('/api/instruments/restore-grid', {
+      file, auto, archiveRevision: item.archiveRevision, sourceToken: sourceSlot.sourceToken,
+    }));
+    await load();
+    restoreState.set(file, { ...(restoreState.get(file) || {}), gridResult: 'whole grid restore verified · recovery retained' });
+    renderArchives();
+  } catch (error) {
+    restoreState.set(file, { ...(restoreState.get(file) || {}), gridResult: 'whole grid restore did not complete. ' + (error.guidance || '') + (error.recovery ? ' Recovery ' + error.recovery.id + ' is retained.' : '') });
+    renderArchives();
+  }
+  const result = [...document.querySelectorAll('[data-grid-result]')].find(element => element.dataset.gridResult === file);
+  if (result) result.focus();
+}
+async function doSwap() {
+  const a = parseInt(document.getElementById('swapA').value, 10);
+  const b = parseInt(document.getElementById('swapB').value, 10);
+  if (a === b) return toast('pick two different slots');
+  const one = STATE && STATE.slots.find(s => s.slot === a), two = STATE && STATE.slots.find(s => s.slot === b);
+  if (!one || !two || !one.sha256 || !two.sha256 || !one.sourceToken || one.sourceToken !== two.sourceToken) return toast('refresh before swapping');
+  const na = one.meta && one.meta.name || 'untitled', nb = two.meta && two.meta.name || 'untitled';
+  if (!confirm('Swap slot ' + a + ' (“' + na + '”) with slot ' + b + ' (“' + nb + '”)? Two verified recovery archives will be retained before either slot changes.')) return;
+  try { const r = await runMutation('protecting and swapping slots …', () => api('/api/swap', { a, b, expectedA: { sha256: one.sha256, bytes: one.bytes }, expectedB: { sha256: two.sha256, bytes: two.bytes }, sourceToken: one.sourceToken })); toast('swapped ' + a + ' ⇄ ' + b + ' · recoveries retained'); await load(); document.getElementById('source').focus(); return r; } catch {}
+}
+function toggleWav(slot) {
+  stopSketch();
+  let el = document.getElementById('wav-' + slot);
+  if (!el) {
+    const s = STATE.slots.find(x => x.slot === slot);
+    el = document.createElement('audio');
+    el.id = 'wav-' + slot;
+    el.src = audioUrl(s.meta.wav, s.meta.wavRoot);
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    el.onended = () => document.getElementById('wavbtn-' + slot) && document.getElementById('wavbtn-' + slot).classList.remove('playing');
+  }
+  const btn = document.getElementById('wavbtn-' + slot);
+  if (el.paused) {
+    document.querySelectorAll('audio').forEach(a => { a.pause(); });
+    document.querySelectorAll('.playBtn.playing').forEach(b => b.classList.remove('playing'));
+    el.play(); btn && btn.classList.add('playing');
+  } else { el.pause(); btn && btn.classList.remove('playing'); }
+}
+
+// ---------- instruments ----------
+function renderInstruments() {
+  const tbl = document.getElementById('instTable');
+  if (!STATE.instruments) { tbl.innerHTML = '<tr><td style="border:none;background:none"><div class="empty">Sample packs need the OP-Z in disk mode (or the opzdisk copy).</div></td></tr>'; return; }
+  let h = '<tr><th class="rn"></th>';
+  for (const t of TYPES) h += '<th style="color:' + TCOL[TRACK_NAMES[TYPES.indexOf(t)]] + '">' + TYPE_LABELS[t] + '</th>';
+  h += '</tr>';
+  for (let s = 0; s < 10; s++) {
+    h += '<tr><td class="rn">' + (s + 1) + '</td>';
+    for (const t of TYPES) {
+      const item = STATE.instruments[t][s];
+      const sel = selCell && selCell.type === t && selCell.slot === s + 1;
+      h += '<td><div class="cell' + (sel ? ' sel' : '') + (item ? '' : ' emptyCell') + '" id="cell-' + t + '-' + (s+1) + '" onclick="cellClick(\'' + t + '\',' + (s + 1) + ')">';
+      if (item) h += '<div class="nm">' + (item.builtin ? '~' : '') + esc(item.name) + '</div>' +
+                     '<div class="sub2">' + (item.engine ? 'engine' : item.size ? Math.round(item.size / 1024) + 'k · ▶' : 'factory') + '</div>';
+      else h += 'empty';
+      h += '</div></td>';
+    }
+    h += '</tr>';
+  }
+  tbl.innerHTML = h;
+  const bar = document.getElementById('instBar');
+  if (selCell) {
+    const item = STATE.instruments[selCell.type][selCell.slot - 1];
+    bar.innerHTML = '<b class="mono" style="font-size:11px;color:' + TCOL[TRACK_NAMES[TYPES.indexOf(selCell.type)]] + '">' +
+      TYPE_LABELS[selCell.type].toUpperCase() + ' ' + String(selCell.slot).padStart(2,'0') + '</b>' +
+      (item
+        ? '<span style="font-size:12px">' + esc(item.name) + (item.size || item.engine ? '' : ' · factory content — audio lives in the device') + '</span>' +
+          (item.engine || !item.size ? '' : '<button class="btn" onclick="audition(\'' + selCell.type + '\',' + selCell.slot + ')">▶ audition</button>') +
+          '<button class="btn ghost" data-mutation="instrument" onclick="removePack()">remove → trash</button>'
+        : '<select id="importSel" style="max-width:220px"><option>loading…</option></select>' +
+          '<button class="btn" data-mutation="instrument" onclick="importPack()">import .aif</button>' +
+          '<span class="instHint">or pick one from the pack browser →</span>') +
+      '<button class="btn ghost" onclick="selCell=null;render()">done</button>';
+    if (!item) loadAifs();
+  } else {
+    bar.innerHTML = '<span class="instHint">Click a pack to select or audition · instrument move and swap return in Phase 3 with verified recovery · <span class="mono">~</span> marks factory content.</span>';
+  }
+}
+async function loadAifs() {
+  if (!AIFS) AIFS = await api('/api/instruments/aifs');
+  const sel = document.getElementById('importSel');
+  if (sel) sel.innerHTML = AIFS.map(a => '<option value="' + attr(a.path) + '">' + esc(a.name) + '</option>').join('') || '<option value="">no .aif files in Music folder</option>';
+}
+async function cellClick(type, slot) {
+  const item = STATE.instruments[type][slot - 1];
+  if (selCell && selCell.type === type && selCell.slot !== slot) {
+    const a = selCell.slot, itemA = STATE.instruments[type][a - 1];
+    if (!itemA) { selCell = { type, slot }; return render(); }
+    await runMutation('protecting and moving instrument …', () => api('/api/instruments/move', { type, from: a, to: slot }));
+    selCell = null; return render();
+  }
+  const wasSel = selCell && selCell.type === type && selCell.slot === slot;
+  selCell = wasSel ? null : { type, slot };
+  render();
+  if (!wasSel && item && !item.engine && item.size) audition(type, slot);
+}
+async function removePack() {
+  const item = STATE.instruments[selCell.type][selCell.slot - 1];
+  if (!confirm('Remove "' + item.name + '" from ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '?\nIt moves to library/instrument-trash — recoverable.')) return;
+  await runMutation('protecting and removing instrument …', () => api('/api/instruments/remove', { type: selCell.type, slot: selCell.slot }));
+  selCell = null; packBuffers.clear(); toast('moved to trash'); load();
+}
+async function importPack() {
+  const source = document.getElementById('importSel').value;
+  if (!source) return;
+  await runMutation('protecting and importing instrument …', () => api('/api/instruments/import', { type: selCell.type, slot: selCell.slot, source }));
+  selCell = null; AIFS = null; toast('imported — eject the device to load it'); load();
+}
+async function snapshotInstruments() {
+  const r = await runMutation('protecting instrument snapshot …', () => api('/api/instruments/snapshot', {}));
+  toast('snapshot saved → ' + r.file); load();
+}
+
+// ---------- pack browser ----------
+async function browsePacks(page) {
+  pkPage = Math.max(1, page || 1);
+  const q = document.getElementById('pkQ').value.trim();
+  const t = document.getElementById('pkType').value;
+  const list = document.getElementById('pkList');
+  list.innerHTML = '<div class="skel"></div><div class="skel"></div>';
+  try {
+    const r = await api('/api/op1fun/browse?page=' + pkPage + (q ? '&q=' + encodeURIComponent(q) : '') + (t ? '&ptype=' + t : ''));
+    list.innerHTML = r.patches.length ? '' : '<div class="empty">No packs found.</div>';
+    for (const pk of r.patches.slice(0, 20)) {
+      const d = document.createElement('div');
+      d.className = 'pkRow';
+      const target = selCell && !STATE.instruments[selCell.type][selCell.slot - 1];
+      d.innerHTML =
+        (pk.preview ? '<button class="pkPlay" data-preview="' + attr(pk.preview) + '" onclick="previewPack(this,this.dataset.preview)">▶</button>' : '<span></span>') +
+        '<div><div class="pkName">' + esc(pk.name) + '</div><div class="pkUser">' + esc(pk.user) + ' · <span class="pkType">' + pk.type + '</span></div></div>' +
+        (target ? '<button class="btn" data-mutation="unavailable" disabled title="Phase 3 adds verified instrument recovery" data-p="' + attr(pk.path) + '" onclick="downloadPack(this.dataset.p)">→ ' + TYPE_LABELS[selCell.type] + ' ' + selCell.slot + '</button>'
+                : '<span class="pkType">select empty slot</span>');
+      list.appendChild(d);
+    }
+    document.getElementById('pkPager').style.display = '';
+    document.getElementById('pkPageLbl').textContent = 'page ' + pkPage;
+  } catch (e) { list.innerHTML = '<div class="empty">Couldn\'t reach op1.fun — check connection.</div>'; }
+}
+let pkAudio = null;
+function previewPack(btn, url) {
+  stopSketch();
+  if (pkAudio && !pkAudio.paused && pkAudio.src === url) { pkAudio.pause(); btn.classList.remove('playing'); return; }
+  if (pkAudio) pkAudio.pause();
+  document.querySelectorAll('.pkPlay.playing').forEach(b => b.classList.remove('playing'));
+  pkAudio = new Audio(url);
+  pkAudio.play(); btn.classList.add('playing');
+  pkAudio.onended = () => btn.classList.remove('playing');
+}
+async function downloadPack(patchPath) {
+  if (!selCell) return toast('select an empty instrument slot first');
+  const r = await api('/api/op1fun/download', { patchPath, type: selCell.type, slot: selCell.slot });
+  toast('downloaded → ' + r.file + ' — eject device to load');
+  selCell = null; load();
+}
+async function saveOp1Settings() {
+  const settings = { op1funEmail: document.getElementById('op1email').value.trim() };
+  const token = document.getElementById('op1token').value.trim();
+  if (token) settings.op1funToken = token;
+  await api('/api/settings', settings);
+  document.getElementById('op1token').value = '';
+  SETTINGS = await api('/api/settings');
+  toast('saved');
+}
+async function clearOp1Token() {
+  await api('/api/settings', { op1funToken: '' });
+  SETTINGS = await api('/api/settings');
+  toast('token cleared'); render();
+}
+
+// ================= audio engine =================
+let AC = null, sketchTimer = null, sketchActive = null, liveNodes = [];
+const packBuffers = new Map(); // "type/slot" -> {info, buffer}
+function ctx() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); return AC; }
+
+async function loadPack(type, slot) {
+  const key = type + '/' + slot;
+  if (packBuffers.has(key)) return packBuffers.get(key);
+  try {
+    const info = await api('/api/pack/info?type=' + type + '&slot=' + slot);
+    const ab = await (await fetch('/api/pack/audio?type=' + type + '&slot=' + slot)).arrayBuffer();
+    const buffer = await ctx().decodeAudioData(ab);
+    const entry = { info, buffer };
+    packBuffers.set(key, entry);
+    return entry;
+  } catch (e) { packBuffers.set(key, null); return null; }
+}
+
+// audition a pack: drums → first few slices; sampler → base note
+async function audition(type, slot) {
+  stopSketch();
+  const cell = document.getElementById('cell-' + type + '-' + slot);
+  cell && cell.classList.add('auditioning');
+  const pk = await loadPack(type, slot);
+  if (!pk) { cell && cell.classList.remove('auditioning'); return toast('couldn\'t decode this pack'); }
+  const ac = ctx(); await ac.resume();
+  let t = ac.currentTime + 0.05;
+  if (pk.info.kind === 'drum' && pk.info.slices.length) {
+    for (const sl of pk.info.slices.slice(0, 6)) {
+      playSlice(ac, pk, sl, t, 1, 0.9);
+      t += Math.min(0.5, (sl.end - sl.start) / pk.info.sampleRate + 0.06);
+    }
+  } else {
+    playSample(ac, pk, t, 1, 0.9, 2.0);
+    t += 2;
+  }
+  setTimeout(() => cell && cell.classList.remove('auditioning'), (t - ac.currentTime) * 1000);
+}
+function playSlice(ac, pk, sl, t, rate, gain) {
+  const src = ac.createBufferSource(), g = ac.createGain();
+  src.buffer = pk.buffer; src.playbackRate.value = rate;
+  const dur = (sl.end - sl.start) / pk.info.sampleRate / rate;
+  g.gain.setValueAtTime(gain, t);
+  g.gain.setValueAtTime(gain, t + Math.max(0.01, dur - 0.02));
+  g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  src.connect(g).connect(ac.destination);
+  src.start(t, sl.start / pk.info.sampleRate, dur * rate + 0.02);
+  liveNodes.push(src);
+}
+function playSample(ac, pk, t, rate, gain, maxDur) {
+  const src = ac.createBufferSource(), g = ac.createGain();
+  src.buffer = pk.buffer; src.playbackRate.value = rate;
+  const dur = Math.min(maxDur, pk.buffer.duration / rate);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.008);
+  g.gain.setValueAtTime(gain, t + Math.max(0.01, dur - 0.08));
+  g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  src.connect(g).connect(ac.destination);
+  src.start(t, 0, dur * rate + 0.05);
+  liveNodes.push(src);
+}
+
+function stopSketch() {
+  if (sketchTimer) { clearInterval(sketchTimer); sketchTimer = null; }
+  liveNodes.forEach(n => { try { n.stop(); } catch {} });
+  liveNodes = [];
+  document.querySelectorAll('.playing').forEach(e => e.classList.remove('playing'));
+  sketchActive = null;
+}
+async function playSlot(slot) {
+  const s = STATE.slots.find(x => x.slot === slot);
+  if (!s || !s.usedPatterns.length) return toast('no notes in this slot');
+  playPattern(slot, s.usedPatterns[0]);
+}
+function defaultDrumKit() {
+  // first playable (non-factory, non-engine) pack in each drum column
+  const kit = {};
+  for (const t of ['kick', 'snare', 'hihat', 'sample']) {
+    const col = STATE.instruments && STATE.instruments[TRACK_TO_TYPE[t]];
+    if (!col) continue;
+    const i = col.findIndex(it => it && !it.engine && it.size);
+    if (i >= 0) kit[t] = i + 1;
+  }
+  return kit;
+}
+async function playPattern(slot, pattern) {
+  const key = slot + ':' + pattern;
+  if (sketchActive === key) { stopSketch(); return; }
+  stopSketch();
+  document.querySelectorAll('audio').forEach(a => a.pause());
+  const s = STATE.slots.find(x => x.slot === slot);
+  const data = await api('/api/pattern?slot=' + slot + '&pattern=' + pattern);
+  const notes = data.notes.filter(n => n.track <= 7);
+  if (!notes.length) return toast('no musical notes in this pattern');
+  sketchActive = key;
+  const btn = document.getElementById('play-' + slot); if (btn) btn.classList.add('playing');
+  const pat = document.getElementById('pat-' + slot + '-' + pattern); if (pat) pat.classList.add('playing');
+
+  // resolve kit: user selection > default drum slot 1 > synth stand-in
+  const kit = { ...defaultDrumKit(), ...((s.meta && s.meta.kit) || {}) };
+  const packs = {};
+  await Promise.all(TRACK_NAMES.map(async (t, ti) => {
+    const slotSel = kit[t];
+    if (!slotSel) return;
+    const type = TRACK_TO_TYPE[t];
+    const item = STATE.instruments && STATE.instruments[type] && STATE.instruments[type][slotSel - 1];
+    if (!item || item.engine) return;
+    packs[ti] = await loadPack(type, slotSel);
+  }));
+
+  const ac = ctx(); await ac.resume();
+  const stepDur = 60 / data.tempo / 4;
+  const loopLen = 16 * stepDur;
+  let loopStart = ac.currentTime + 0.1;
+  const scheduleLoop = (t0) => { for (const n of notes) scheduleNote(ac, n, t0 + n.step * stepDur, stepDur, packs); };
+  scheduleLoop(loopStart);
+  sketchTimer = setInterval(() => {
+    if (ac.currentTime > loopStart + loopLen - 0.25) { loopStart += loopLen; scheduleLoop(loopStart); }
+  }, 100);
+}
+function midiFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function scheduleNote(ac, n, t, stepDur, packs) {
+  const vel = Math.max(0.15, Math.min(1, n.vel / 127));
+  const durS = Math.max(0.06, Math.min(3, (n.dur / 2560) * stepDur));
+  const pk = packs && packs[n.track];
+  if (pk) {
+    if (n.track <= 3 && pk.info.kind === 'drum' && pk.info.slices.length) {
+      // OP-Z drum keys start at F3 (MIDI 53), one slice per semitone
+      const idx = ((n.note - 53) % pk.info.slices.length + pk.info.slices.length) % pk.info.slices.length;
+      return playSlice(ac, pk, pk.info.slices[idx], t, 1, 0.85 * vel);
+    }
+    if (n.track >= 4 && pk.info.kind === 'sampler' && pk.info.baseFreq) {
+      const rate = midiFreq(n.note) / pk.info.baseFreq;
+      return playSample(ac, pk, t, rate, 0.7 * vel, durS);
+    }
+    if (n.track >= 4 && pk.info.kind === 'sample') { // plain sample, assume C4 root
+      return playSample(ac, pk, t, midiFreq(n.note) / 261.63, 0.7 * vel, durS);
+    }
+  }
+  synthNote(ac, n, t, vel, durS);
+}
+function synthNote(ac, n, t, vel, durS) {
+  const master = ac.destination;
+  if (n.track === 0) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.9 * vel, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    o.connect(g).connect(master); o.start(t); o.stop(t + 0.3); liveNodes.push(o);
+  } else if (n.track === 1) {
+    noiseHit(ac, t, 0.14, 0.5 * vel, 1800);
+  } else if (n.track === 2) {
+    noiseHit(ac, t, 0.05, 0.28 * vel, 8000);
+  } else if (n.track === 3) {
+    noiseHit(ac, t, 0.09, 0.4 * vel, 3000 + (n.note % 12) * 400);
+  } else {
+    const types = { 4: 'sawtooth', 5: 'square', 6: 'triangle', 7: 'sawtooth' };
+    const gains = { 4: 0.4, 5: 0.3, 6: 0.3, 7: 0.18 };
+    const o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+    o.type = types[n.track]; o.frequency.value = midiFreq(n.note + (n.track === 4 ? -12 : 0));
+    f.type = 'lowpass'; f.frequency.value = n.track === 4 ? 900 : 2600;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gains[n.track] * vel, t + 0.01);
+    g.gain.setValueAtTime(gains[n.track] * vel, t + Math.max(0.01, durS - 0.05));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + durS);
+    o.connect(f).connect(g).connect(master);
+    o.start(t); o.stop(t + durS + 0.05); liveNodes.push(o);
+  }
+}
+function noiseHit(ac, t, dur, gain, cutoff) {
+  const len = Math.ceil(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = cutoff;
+  const g = ac.createGain(); g.gain.value = gain;
+  src.connect(f).connect(g).connect(ac.destination); src.start(t); liveNodes.push(src);
+}
+
+load();
+</script>
+</body>
+</html>
