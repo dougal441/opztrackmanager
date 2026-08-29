@@ -1,6 +1,6 @@
 # OP-Z Manager
 
-Track manager for OP-Z project slots. See all 10 slots, name songs, hear sketches, back up to unlimited library, restore/swap slots.
+Track manager for OP-Z project slots. See all 10 slots, name songs, hear sketches, archive the whole device, move pattern-selected songs to an unlimited library, and restore or swap slots safely.
 
 ## Start
 
@@ -22,9 +22,12 @@ First time: if macOS blocks it, right-click → Open. Needs Node (`brew install 
 
 ## Library workflow (solves 12-songs-in-10-slots)
 
-1. Save slot to library → bundle folder in `library/` (song.opz + instrument snapshot; deep backup also copies all sample packs, ~25 MB)
-2. Free the slot on device (or overwrite via restore)
-3. Restore any library song into any slot later — current slot auto-backs up to `library/auto-backups/` first. Deep backups can also restore the instrument setup for a full reload.
+1. Expand a device slot and choose the Pattern numbers that belong to a song.
+2. Archive the selection, or move it to the archive shelf. A move publishes the verified song and a recovery copy before the slot changes; unselected patterns stay at their original numbers.
+3. Restore any archived song into any slot later. An occupied target automatically gets a verified recovery first.
+4. To preserve the complete device at once, choose **archive all occupied slots**. This creates one dated snapshot containing every occupied project and one shared copy of the complete sample-pack grid.
+
+Whole-slot archives and automatic clearing remain available. The proven clear workflow waits for a disconnect/reconnect confirmation before reporting an empty slot.
 
 ## Sketch playback with real sounds
 
@@ -49,6 +52,7 @@ Search/browse community packs in the instruments tab, preview mp3s freely. To do
 - `server.js` — no-dependency Node server + API
 - `app/index.html` — GUI
 - `library/` — your song backups
+- `library/device-snapshots/` — dated all-slot archives with one shared instrument grid
 - `data/meta.json` — names/tags/notes
 
 ## License
