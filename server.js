@@ -18,6 +18,7 @@ const ROOT = __dirname;
 const APP_DIR = path.join(ROOT, 'app');
 const LIB_DIR = path.join(ROOT, 'library');
 const AUTO_DIR = path.join(LIB_DIR, 'auto-backups');
+const SNAPSHOT_DIR = path.join(LIB_DIR, 'device-snapshots');
 const TRASH_DIR = path.join(LIB_DIR, 'instrument-trash');
 const DATA_DIR = path.join(ROOT, 'data');
 const META_FILE = path.join(DATA_DIR, 'meta.json');
@@ -31,7 +32,7 @@ const SOURCE_TOKEN_SECRET = crypto.randomBytes(32);
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
 const META_TRACKS = ['kick', 'snare', 'hihat', 'sample', 'bass', 'lead', 'arp', 'chord'];
 const mutationRouteInventory = Object.freeze({
-  enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
+  enabled: ['/api/backup', '/api/archive-device', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
   unavailable: [
     '/api/op1fun/download',
   ],
@@ -45,7 +46,7 @@ let pendingClear = null;
 let clearStatus = null;
 const testHooks = {};
 
-for (const d of [LIB_DIR, AUTO_DIR, TRASH_DIR, DATA_DIR]) fs.mkdirSync(d, { recursive: true });
+for (const d of [LIB_DIR, AUTO_DIR, SNAPSHOT_DIR, TRASH_DIR, DATA_DIR]) fs.mkdirSync(d, { recursive: true });
 try { fs.chmodSync(SETTINGS_FILE, 0o600); } catch {}
 
 // ---------- metadata ----------
@@ -634,6 +635,7 @@ function scanLibrary(meta, libraryRoot = LIB_DIR, autoRoot = AUTO_DIR) {
   const items = [];
   const reserved = new Set([
     autoRoot && path.resolve(autoRoot),
+    path.resolve(libraryRoot, path.basename(SNAPSHOT_DIR)),
     path.resolve(libraryRoot, path.basename(TRASH_DIR)),
   ].filter(Boolean));
   const scanDir = (dir, auto) => {
@@ -1263,6 +1265,106 @@ function archiveCapturedProject(captured, options) {
     throw failure;
   }
 }
+function classifyDeviceSnapshot(dir) {
+  try {
+    const stat = fs.lstatSync(dir);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('invalid snapshot');
+    const manifestPath = path.join(dir, 'snapshot.json');
+    const manifestStat = fs.lstatSync(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink() || manifestStat.size > 2e6) throw new Error('invalid manifest');
+    const info = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (!hasExactKeys(info, ['schemaVersion', 'created', 'source', 'projects', 'samplepacks'])
+        || info.schemaVersion !== 1 || !isIsoTime(info.created)
+        || !hasExactKeys(info.source, ['device', 'label']) || typeof info.source.device !== 'boolean'
+        || typeof info.source.label !== 'string' || !info.source.label || info.source.label.length > 80
+        || !Array.isArray(info.projects) || !info.projects.length
+        || info.projects.some(project => !hasExactKeys(project, ['slot', 'path', 'bytes', 'sha256', 'checked'])
+          || !Number.isInteger(project.slot) || project.slot < 1 || project.slot > 10
+          || project.path !== `projects/project${String(project.slot).padStart(2, '0')}.opz`
+          || !isIsoTime(project.checked) || !isEvidence({ path: project.path, bytes: project.bytes, sha256: project.sha256 }))
+        || new Set(info.projects.map(project => project.slot)).size !== info.projects.length
+        || !hasExactKeys(info.samplepacks, ['captured', 'files']) || info.samplepacks.captured !== true
+        || !Array.isArray(info.samplepacks.files) || info.samplepacks.files.some(item => !isEvidence(item))) {
+      throw new Error('invalid snapshot manifest');
+    }
+    for (const project of info.projects) parseProject(readArchiveEvidence(dir,
+      { path: project.path, bytes: project.bytes, sha256: project.sha256 }));
+    const gridRoot = path.join(dir, 'samplepacks');
+    if (!fs.lstatSync(gridRoot).isDirectory() || !manifestMatches(gridRoot, info.samplepacks.files)) throw new Error('grid mismatch');
+    return {
+      id: path.basename(dir), verified: true, restoreEligible: true, created: info.created,
+      source: info.source, projects: info.projects.map(project => ({ ...project, storedBytesMatch: true, parsed: true })),
+      samplepacks: { captured: true, fileCount: info.samplepacks.files.length,
+        totalBytes: info.samplepacks.files.reduce((total, file) => total + file.bytes, 0) },
+    };
+  } catch { return { id: path.basename(dir), verified: false, restoreEligible: false }; }
+}
+function scanDeviceSnapshots(snapshotRoot = SNAPSHOT_DIR) {
+  if (!fs.existsSync(snapshotRoot)) return [];
+  return fs.readdirSync(snapshotRoot).filter(name => !name.startsWith('.')).map(name => {
+    const full = path.join(snapshotRoot, name);
+    const result = classifyDeviceSnapshot(full);
+    let modified = null;
+    try { modified = fs.lstatSync(full).mtime; } catch {}
+    return { ...result, modified };
+  }).sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')));
+}
+function archiveDeviceSnapshot(source, options = {}) {
+  if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+  const snapshotRoot = options.snapshotRoot || SNAPSHOT_DIR;
+  fs.mkdirSync(snapshotRoot, { recursive: true });
+  const captured = [];
+  for (let slot = 1; slot <= 10; slot++) {
+    try { captured.push((options.captureSource || captureSource)(slot, source)); }
+    catch (error) { if (fs.existsSync(path.join(source.path, `project${String(slot).padStart(2, '0')}.opz`))) throw error; }
+  }
+  if (!captured.length) throw requestError(409, 'NO_OCCUPIED_SLOTS', 'There are no occupied slots to archive.');
+  const draft = fs.mkdtempSync(path.join(snapshotRoot, '.partial-'));
+  try {
+    const projectsDir = path.join(draft, 'projects');
+    fs.mkdirSync(projectsDir);
+    const checked = new Date().toISOString();
+    const projects = captured.map(item => {
+      assertCapturedSource(item);
+      const relative = `projects/project${String(item.slot).padStart(2, '0')}.opz`;
+      const output = path.join(draft, relative);
+      fs.writeFileSync(output, item.buffer, { flush: true });
+      const stored = fs.readFileSync(output);
+      if (!stored.equals(item.buffer)) throw archiveError('ARCHIVE_BYTES_MISMATCH', 'Stored project does not match the captured source.');
+      parseProject(stored);
+      return { slot: item.slot, path: relative, bytes: stored.length, sha256: sha256(stored), checked };
+    });
+    captured.forEach(assertCapturedSource);
+    let samplepacks;
+    try { samplepacks = fs.realpathSync(path.join(captured[0].root, 'samplepacks')); }
+    catch { throw sourceError('SOURCE_UNAVAILABLE', 'Captured sample packs are unavailable.'); }
+    const files = copyDir(samplepacks, path.join(draft, 'samplepacks'));
+    captured.forEach(assertCapturedSource);
+    if (!manifestMatches(samplepacks, files) || !manifestMatches(path.join(draft, 'samplepacks'), files)) {
+      throw archiveError('ARCHIVE_MANIFEST_MISMATCH', 'Stored sample packs do not match the captured source.');
+    }
+    const sourceInfo = publicSource(captured[0]);
+    const info = { schemaVersion: 1, created: checked,
+      source: { device: sourceInfo.device, label: sourceInfo.label }, projects,
+      samplepacks: { captured: true, files } };
+    fs.writeFileSync(path.join(draft, 'snapshot.json'), JSON.stringify(info, null, 2), { flush: true });
+    if (typeof options.beforePublish === 'function') options.beforePublish(draft);
+    captured.forEach(assertCapturedSource);
+    const classification = classifyDeviceSnapshot(draft);
+    if (!classification.verified) throw archiveError('ARCHIVE_MANIFEST_MISMATCH', 'Stored device snapshot could not be verified.');
+    const finalName = `${stamp()}_device_${safeName(sourceInfo.label)}_${path.basename(draft).slice(-6)}`;
+    fs.renameSync(draft, path.join(snapshotRoot, finalName));
+    return { ...classification, id: finalName, guidance: 'Verified dated device archive saved. No device data changed.' };
+  } catch (error) {
+    try {
+      const failed = path.join(snapshotRoot, '.failed');
+      fs.mkdirSync(failed, { recursive: true });
+      fs.renameSync(draft, path.join(failed, path.basename(draft)));
+    } catch {}
+    if (/^(SOURCE_|ARCHIVE_)/.test(error.code || '')) throw error;
+    throw archiveError('ARCHIVE_FAILED', 'Device archive could not be verified.');
+  }
+}
 function projFile(slot) {
   const src = getSource();
   if (!src) throw new Error('no source');
@@ -1563,6 +1665,7 @@ const server = http.createServer(async (req, res) => {
         clearEnabled: Boolean(clearSlot && clearEnabled(clearSource)),
         clearStatus: currentClearStatus,
         library,
+        deviceSnapshots: scanDeviceSnapshots(testHooks.snapshotRoot || SNAPSHOT_DIR),
         archiveShelf: archiveShelfData(library, drafts, (file, auto) => auto
           ? { eligible: false, relation: 'archive_ineligible', guidance: 'Automatic recovery backups are retained but do not offer manual-free guidance.' }
           : manualFreeInspection(file, manualOptions)),
@@ -1726,6 +1829,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- song library ----
+    if (p === '/api/archive-device' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!isPlainObject(body) || Object.keys(body).length) throw requestError(400, 'INVALID_REQUEST', 'Device archive request must be empty.');
+      return await withMutation('archive all occupied slots', async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        mutation.source = { device: source.device === true, label: String(source.label || 'unknown source').slice(0, 80) };
+        const result = archiveDeviceSnapshot(source, {
+          snapshotRoot: testHooks.snapshotRoot || SNAPSHOT_DIR,
+          captureSource: testHooks.captureSource || captureSource,
+          beforePublish: testHooks.beforeDeviceSnapshotPublish,
+        });
+        return json(res, 200, result);
+      });
+    }
     if (p === '/api/backup' && req.method === 'POST') {
       const body = validateBackup(await readBody(req));
       return await withMutation(`archive slot ${body.slot}`, async mutation => {
@@ -2197,6 +2315,9 @@ module.exports = {
   writeVerifiedProject,
   withMutation,
   archiveCapturedProject,
+  archiveDeviceSnapshot,
+  classifyDeviceSnapshot,
+  scanDeviceSnapshots,
   scanLibrary,
   archiveShelfData,
   scanDrafts,

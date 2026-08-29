@@ -166,6 +166,47 @@ test('verified archive tracer publishes reread, parsed bytes with evidence', t =
   assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, false);
 });
 
+test('dated device snapshot stores every occupied project and one verified shared grid without changing source', t => {
+  const roots = tempRoots(t);
+  const snapshotRoot = path.join(roots.libraryRoot, 'device-snapshots');
+  fs.mkdirSync(snapshotRoot);
+  fs.copyFileSync(FIXTURE, path.join(roots.source.path, 'project04.opz'));
+  const pack = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
+  fs.mkdirSync(pack, { recursive: true });
+  fs.writeFileSync(path.join(pack, 'kick.aif'), 'grid bytes');
+  const before = snapshotRegularFiles(roots.sourceRoot);
+
+  const result = subject.archiveDeviceSnapshot(roots.source, { snapshotRoot });
+  assert.equal(result.verified, true);
+  assert.deepEqual(result.projects.map(project => project.slot), [1, 4]);
+  assert.equal(result.samplepacks.fileCount, 1);
+  assert.deepEqual(snapshotRegularFiles(roots.sourceRoot), before);
+  assert.deepEqual(subject.scanDeviceSnapshots(snapshotRoot).map(item => item.id), [result.id]);
+
+  const bundle = path.join(snapshotRoot, result.id);
+  fs.writeFileSync(path.join(bundle, 'projects', 'project04.opz'), Buffer.from('corrupt'));
+  assert.equal(subject.classifyDeviceSnapshot(bundle).verified, false);
+});
+
+test('device snapshot route publishes per-slot evidence and appears in state', async t => {
+  const roots = tempRoots(t);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = null;
+  subject.testHooks.snapshotRoot = path.join(roots.libraryRoot, 'device-snapshots');
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+
+  const archived = await requestJson(subject.server, '/api/archive-device', {});
+  assert.equal(archived.status, 200, JSON.stringify(archived.body));
+  assert.equal(archived.body.projects.length, 1);
+  assert.equal(archived.body.projects[0].storedBytesMatch, true);
+  assert.equal(archived.body.projects[0].parsed, true);
+  const state = await request(subject.server, '/api/state');
+  assert.equal(state.body.deviceSnapshots.length, 1);
+  assert.equal(state.body.deviceSnapshots[0].verified, true);
+});
+
 test('split review is deterministic, explicitly confirmed, and source immutable', async t => {
   const fixture = fs.readFileSync(FIXTURE);
   const roots = tempRoots(t, fixture);
@@ -1355,7 +1396,7 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
   const unavailable = [
     '/api/op1fun/download',
   ];
-  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/op1fun/download'] });
+  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/archive-device', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/op1fun/download'] });
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
   for (const route of unavailable) {
@@ -1702,6 +1743,14 @@ test('archive success always captures complete grid then opens and focuses shelf
   assert.match(body, /setTab\('archives'\)/);
   assert.match(body, /dataset\.archiveId === r\.file/);
   assert.match(body, /\.focus\(\)/);
+});
+
+test('songs view offers one dated all-slots archive action', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, />archive all occupied slots<\/button>/);
+  assert.match(html, /api\('\/api\/archive-device', \{\}\)/);
+  assert.match(html, /dated device archive/);
+  assert.match(html, /Device data will not change/);
 });
 
 test('manual free is device-only, request-local, exact-match, and fail-closed', async t => {

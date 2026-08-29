@@ -274,6 +274,7 @@
       <h2>library</h2>
       <div class="desc">Songs saved off the device. Deep backups carry the full instrument setup for a complete reload.</div>
       <div id="library"></div>
+      <button class="btn acc" style="margin-top:10px;min-height:44px" data-mutation="archive-device" onclick="archiveDevice()">archive all occupied slots</button>
     </section>
     <section>
       <h2>swap slots</h2>
@@ -679,11 +680,25 @@ async function backup(slot) {
     if (summary) summary.focus();
   });
 }
+async function archiveDevice() {
+  const occupied = STATE.slots.filter(slot => !slot.empty && !slot.error).length;
+  if (!occupied) return toast('no occupied slots to archive');
+  if (!confirm('Create one dated archive of all ' + occupied + ' occupied slots and the complete sample-pack grid?\nDevice data will not change.')) return;
+  await runMutation('archive all occupied slots', async () => {
+    const result = await api('/api/archive-device', {});
+    await load();
+    toast('dated device archive verified · ' + result.projects.length + ' slots');
+  });
+}
 function renderLibrary() {
   const lib = document.getElementById('library');
   const shelf = STATE.archiveShelf;
+  const snapshots = STATE.deviceSnapshots || [];
+  const latestSnapshot = snapshots.find(item => item.verified);
   lib.innerHTML = '<div class="libSub">' + esc(countLabel(shelf.verifiedCount, 'verified archive')) + '</div>' +
     '<div class="libSub">' + esc(countLabel(shelf.diagnosticCount, 'archive diagnostic')) + '</div>' +
+    '<div class="libSub">' + esc(countLabel(snapshots.filter(item => item.verified).length, 'dated device archive')) + '</div>' +
+    (latestSnapshot ? '<div class="libSub">latest: ' + esc(new Date(latestSnapshot.created).toLocaleString()) + ' · slots ' + esc(latestSnapshot.projects.map(project => String(project.slot).padStart(2, '0')).join(', ')) + '</div>' : '') +
     '<button class="btn" style="margin-top:10px;min-height:44px" onclick="setTab(\'archives\')">open archive shelf</button>';
 }
 function renderArchives() {
