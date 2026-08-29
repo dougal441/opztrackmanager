@@ -1,10 +1,10 @@
 ---
 phase: 08-unified-pattern-level-songs
-status: hardware_pending
-score: 6/6 local
+status: passed
+score: 6/6
 verified: 2026-08-29
 ---
 
 # Phase 8 Verification
 
-All six requirements pass against the local fixture and transaction boundary. The complete suite reports 70 passed, 0 failed, and 4 opt-in hardware tests skipped. Direct physical-device archive/move/exact-recovery evidence remains pending until the OP-Z is mounted.
+All six requirements pass locally and on the physical USB OP-Z. Slot 1 Pattern 1 was archived as a restore-ready song, moved through the recovery-first path, and reread with exactly the seven unselected pattern indexes retained. The verified original recovery matched the pre-write bytes, and the exact original slot SHA was restored. The rejection folder and every unrelated device file remained unchanged.

@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-status: Planning
-stopped_at: v1.1 roadmap defined; ready to plan Phase 7
-last_updated: "2026-08-29T07:44:08.286Z"
+status: Milestone verified
+stopped_at: v1.1 direct OP-Z UAT and full suite passed; ready to ship
+last_updated: "2026-08-29T08:05:56.785Z"
 last_activity: 2026-08-29
-last_activity_desc: Milestone v1.1 Unified Songs started
+last_activity_desc: Milestone v1.1 Unified Songs verified on physical OP-Z
 state_head: 3dedef95aaf0b2356a08e52f7ca4e134f4281e7f
 progress:
   total_phases: 8
-  completed_phases: 6
-  total_plans: 12
-  completed_plans: 12
-  percent: 75
-current_phase: 7
-current_phase_name: Dated Full-Device Archive
+  completed_phases: 8
+  total_plans: 14
+  completed_plans: 14
+  percent: 100
+current_phase: 8
+current_phase_name: Unified Pattern-Level Songs
 ---
 
 # Project State
@@ -23,14 +23,14 @@ current_phase_name: Dated Full-Device Archive
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** Dougal can free an OP-Z slot knowing the complete song can be verified and restored later.
-**Current focus:** v1.1 Unified Songs — dated device archive
+**Current focus:** v1.1 Unified Songs — verified, ready to ship
 
 ## Current Position
 
-Phase: 7 of 8 — Dated Full-Device Archive
-Plan: —
-Status: Ready to plan
-Last activity: 2026-08-29 — Milestone v1.1 Unified Songs started
+Phase: 8 of 8 — Unified Pattern-Level Songs
+Plan: 1 of 1 complete
+Status: Milestone verified
+Last activity: 2026-08-29 — Direct OP-Z archive, move, and exact recovery UAT passed
 
 ## Performance Metrics
 
@@ -80,8 +80,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Pending Todos
 
-- Phase 7: dated full-device archive.
-- Phase 8: unified pattern-level song lifecycle.
+None.
 
 ### Blockers/Concerns
 
@@ -102,4 +101,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Plan and execute Phase 7.
+- Ship v1.1.

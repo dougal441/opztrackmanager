@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Trustworthy Library** — Phases 1–6 (shipped 2026-08-29; [archive](milestones/v1.0-ROADMAP.md))
-- 🚧 **v1.1 Unified Songs** — Phases 7–8
+- ✅ **v1.1 Unified Songs** — Phases 7–8 (verified 2026-08-29)
 
 ## Phases
 
@@ -19,10 +19,10 @@
 
 </details>
 
-### 🚧 v1.1 Unified Songs
+### ✅ v1.1 Unified Songs
 
-- [ ] **Phase 7: Dated Full-Device Archive** — Capture every occupied slot and the shared instrument grid as one verified, dated, read-only snapshot.
-- [ ] **Phase 8: Unified Pattern-Level Songs** — Make device and shelf songs one collection, with pattern selection, archive/move, and verified restore.
+- [x] **Phase 7: Dated Full-Device Archive** — Captures every occupied slot and the shared instrument grid as one verified, dated, read-only snapshot.
+- [x] **Phase 8: Unified Pattern-Level Songs** — Device and shelf songs share pattern selection, archive/move, and verified restore.
 
 ## Phase Details
 
