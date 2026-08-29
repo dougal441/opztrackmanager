@@ -22,6 +22,7 @@ const TRASH_DIR = path.join(LIB_DIR, 'instrument-trash');
 const DATA_DIR = path.join(ROOT, 'data');
 const META_FILE = path.join(DATA_DIR, 'meta.json');
 const CLEAR_ACCEPTANCE_FILE = path.join(DATA_DIR, 'clear-acceptance.json');
+const CLEAR_PENDING_FILE = path.join(DATA_DIR, 'clear-pending.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const MUSIC_DIR = path.dirname(ROOT);
 const PORT = 8765;
@@ -40,6 +41,8 @@ const unavailableMutationGuidance = Object.freeze({
 });
 
 let activeMutation = null;
+let pendingClear = null;
+let clearStatus = null;
 const testHooks = {};
 
 for (const d of [LIB_DIR, AUTO_DIR, TRASH_DIR, DATA_DIR]) fs.mkdirSync(d, { recursive: true });
@@ -126,7 +129,13 @@ function scanSlots(meta, sourceResolver = getSource) {
   for (let i = 1; i <= 10; i++) {
     const nn = String(i).padStart(2, '0');
     const file = path.join(src.path, `project${nn}.opz`);
-    if (!fs.existsSync(file)) { slots.push({ slot: i, empty: true }); continue; }
+    if (!fs.existsSync(file)) {
+      try {
+        const captured = captureRestoreTarget(i, src);
+        slots.push({ slot: i, empty: true, sourceToken: captured.sourceToken });
+      } catch { slots.push({ slot: i, empty: true }); }
+      continue;
+    }
     try {
       const buf = fs.readFileSync(file);
       const hash = hashFile(buf);
@@ -225,6 +234,22 @@ function loadClearAcceptance(file = CLEAR_ACCEPTANCE_FILE) {
     return isPlainObject(value) ? value : null;
   } catch { return null; }
 }
+function clearPendingFile() { return testHooks.clearPendingFile || CLEAR_PENDING_FILE; }
+function loadPendingClear(file = clearPendingFile()) {
+  try {
+    if (fs.statSync(file).size > 100000) return null;
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return isPlainObject(value) && value.version === 1 && value.method === 'delete-project-file'
+      && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 10
+      && typeof value.label === 'string' && value.label.length > 0 && value.label.length <= 80
+      && typeof value.rootDevice === 'string' && typeof value.rootInode === 'string'
+      && typeof value.disconnected === 'boolean' && isPlainObject(value.public) ? value : null;
+  } catch { return null; }
+}
+function savePendingClear(value, file = clearPendingFile()) {
+  if (value) saveJsonAtomic(file, value);
+  else fs.rmSync(file, { force: true });
+}
 function clearAcceptanceValid(record, source) {
   if (!isPlainObject(record) || !isPlainObject(source)) return false;
   if (!hasExactKeys(record, ['version', 'method', 'fixture', 'device', 'outcomes', 'recorded'])
@@ -241,6 +266,45 @@ function clearAcceptanceValid(record, source) {
 }
 function clearEnabled(source, record = loadClearAcceptance()) {
   return clearAcceptanceValid(record, source);
+}
+function reconcilePendingClear(sourceResolver = getSource) {
+  if (!pendingClear) pendingClear = loadPendingClear();
+  if (!pendingClear) return clearStatus;
+  const source = sourceResolver();
+  if (!source || source.device !== true) {
+    pendingClear.disconnected = true;
+    savePendingClear(pendingClear);
+    return { ...pendingClear.public, state: 'awaiting_reconnect',
+      guidance: 'Device absence observed. Return the original OP-Z to Content Mode, then refresh to confirm the empty slot.' };
+  }
+  if (String(source.label || '') !== pendingClear.label) {
+    return { ...pendingClear.public, state: 'awaiting_original_device',
+      guidance: 'A different source is mounted. Reconnect the original OP-Z; the verified recovery remains retained.' };
+  }
+  let target;
+  try { target = captureRestoreTarget(pendingClear.slot, source); }
+  catch {
+    return { ...pendingClear.public, state: 'awaiting_reconnect',
+      guidance: 'The original OP-Z could not be revalidated. Reconnect it in Content Mode and refresh.' };
+  }
+  if (target.rootDevice !== pendingClear.rootDevice || target.rootInode !== pendingClear.rootInode) {
+    return { ...pendingClear.public, state: 'awaiting_original_device',
+      guidance: 'The mounted source identity changed. Reconnect the original OP-Z; the verified recovery remains retained.' };
+  }
+  if (!pendingClear.disconnected) {
+    return { ...pendingClear.public, state: 'awaiting_disconnect',
+      guidance: 'Eject the OP-Z, refresh once while it is absent, then return it to Content Mode and refresh again.' };
+  }
+  if (!target.empty) {
+    clearStatus = { ...pendingClear.public, state: 'recovery_required', cleared: false,
+      guidance: 'The slot was not empty after reconnect. Restore the retained recovery archive.' };
+  } else {
+    clearStatus = { ...pendingClear.public, state: 'confirmed', cleared: true,
+      guidance: 'Slot clearing was confirmed after a same-device disconnect and reconnect. The verified recovery remains retained.' };
+  }
+  pendingClear = null;
+  savePendingClear(null);
+  return clearStatus;
 }
 function sanitizeSplitName(value, field) {
   validateString(value, field, 80, false);
@@ -653,6 +717,7 @@ function archiveShelfData(library, drafts, inspectManualFree) {
       verified: true,
       complete: item.complete === true,
       restoreEligible: item.restoreEligible === true,
+      ...(item.split ? { split: item.split, acceptance: item.acceptance || null, restoreReason: item.restoreReason } : {}),
       archiveRevision: item.archiveRevision,
       manualFreeEligible: manualFree ? manualFree.eligible === true : item.manualFreeEligible === true,
       manualFreeRelation: manualFree && manualFree.relation || null,
@@ -927,9 +992,12 @@ function validateRestore(body) {
   validateBoolean(body.auto, 'auto');
   validateString(body.archiveRevision, 'archiveRevision', 64, false);
   validateString(body.sourceToken, 'sourceToken', 64, false);
+  const occupiedTarget = isPlainObject(body.targetFingerprint)
+    && hasExactKeys(body.targetFingerprint, ['sha256', 'bytes'])
+    && /^[a-f0-9]{64}$/i.test(body.targetFingerprint.sha256)
+    && Number.isSafeInteger(body.targetFingerprint.bytes) && body.targetFingerprint.bytes >= 1;
   if (!/^[a-f0-9]{64}$/i.test(body.archiveRevision) || !/^[a-f0-9]{64}$/i.test(body.sourceToken)
-      || !isPlainObject(body.targetFingerprint) || !hasExactKeys(body.targetFingerprint, ['sha256', 'bytes'])
-      || !/^[a-f0-9]{64}$/i.test(body.targetFingerprint.sha256) || !Number.isSafeInteger(body.targetFingerprint.bytes) || body.targetFingerprint.bytes < 1) {
+      || (body.targetFingerprint !== null && !occupiedTarget)) {
     throw requestError(400, 'INVALID_RESTORE_REQUEST', 'Restore target evidence is invalid.');
   }
   validateSlot(body.slot);
@@ -972,7 +1040,7 @@ function sourceGuidance(source) {
     ? 'Verified archive saved. Eject the OP-Z before disconnecting it; reconnect it and refresh before continuing.'
     : 'Verified archive saved. No OP-Z data changed. Refresh after connecting the OP-Z.';
 }
-function captureSource(slot, source) {
+function captureSlotRoot(slot, source) {
   validateSlot(slot);
   if (!source || typeof source.root !== 'string') throw new Error('no source');
   const root = fs.realpathSync(source.root);
@@ -981,7 +1049,6 @@ function captureSource(slot, source) {
   const relative = path.relative(root, projects);
   if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('invalid source projects path');
   const projectPath = path.join(projects, `project${String(slot).padStart(2, '0')}.opz`);
-  const buffer = fs.readFileSync(projectPath);
   return {
     slot,
     device: source.device === true,
@@ -991,10 +1058,23 @@ function captureSource(slot, source) {
     rootInode: String(rootStat.ino),
     projects,
     projectPath,
+    sourceToken: sourceToken(root, projects, rootStat),
+  };
+}
+function captureSource(slot, source) {
+  const captured = captureSlotRoot(slot, source);
+  const buffer = fs.readFileSync(captured.projectPath);
+  return { ...captured, buffer, sha256: sha256(buffer), bytes: buffer.length };
+}
+function captureRestoreTarget(slot, source) {
+  const captured = captureSlotRoot(slot, source);
+  if (!fs.existsSync(captured.projectPath)) return { ...captured, empty: true };
+  const buffer = fs.readFileSync(captured.projectPath);
+  return {
+    ...captured,
     buffer,
     sha256: sha256(buffer),
     bytes: buffer.length,
-    sourceToken: sourceToken(root, projects, rootStat),
   };
 }
 function sourceToken(root, projects, rootStat) {
@@ -1024,6 +1104,11 @@ function assertCapturedSource(captured) {
   if (current.length !== captured.bytes || sha256(current) !== captured.sha256) {
     throw sourceError('SOURCE_CHANGED', 'Captured project changed.');
   }
+}
+function assertRestoreTarget(captured) {
+  if (!captured.empty) return assertCapturedSource(captured);
+  assertCapturedRoot(captured);
+  if (fs.existsSync(captured.projectPath)) throw sourceError('SOURCE_CHANGED', 'The selected empty slot changed.');
 }
 async function withMutation(operation, callback) {
   if (activeMutation) {
@@ -1460,6 +1545,7 @@ const server = http.createServer(async (req, res) => {
       const library = scanLibrary(meta, libraryRoot, autoRoot);
       const drafts = scanDrafts(libraryRoot);
       const clearResolver = Object.hasOwn(testHooks, 'clearAcceptanceFile') ? (testHooks.sourceResolver || getSource) : getSource;
+      const currentClearStatus = reconcilePendingClear(clearResolver);
       const slotState = scanSlots(meta, Object.hasOwn(testHooks, 'clearAcceptanceFile') ? clearResolver : getSource);
       const clearSource = activeMutation ? null : clearResolver();
       const clearSlot = clearSource && slotState.slots.find(slot => slot.sourceToken);
@@ -1472,6 +1558,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         ...slotState,
         clearEnabled: Boolean(clearSlot && clearEnabled(clearSource)),
+        clearStatus: currentClearStatus,
         library,
         archiveShelf: archiveShelfData(library, drafts, (file, auto) => auto
           ? { eligible: false, relation: 'archive_ineligible', guidance: 'Automatic recovery backups are retained but do not offer manual-free guidance.' }
@@ -1521,13 +1608,22 @@ const server = http.createServer(async (req, res) => {
           fs.unlinkSync(captured.projectPath); deleted = true;
           if (typeof testHooks.afterClearDelete === 'function') testHooks.afterClearDelete(captured);
           assertCapturedRoot(captured);
-          const confirmed = typeof testHooks.confirmClear === 'function'
-            ? testHooks.confirmClear(captured)
-            : !fs.existsSync(captured.projectPath);
-          if (!confirmed || fs.existsSync(captured.projectPath)) throw transactionError('CLEAR_UNCONFIRMED', 'Automatic clearing could not be confirmed.',
-            'Reconnect the original OP-Z in Content Mode and refresh. If the slot is not empty, restore the retained recovery archive.', 409);
-          return json(res, 200, { ok: true, verified: true, cleared: true, slot: body.slot, source: publicSource(captured),
-            recovery: receipt, guidance: 'Slot cleared and the empty-slot state was confirmed on the same mounted OP-Z. The verified recovery archive remains retained.' });
+          if (fs.existsSync(captured.projectPath)) throw transactionError('CLEAR_UNCONFIRMED', 'Automatic clearing could not be staged.',
+            'Restore the retained recovery archive and retry.', 409);
+          clearStatus = null;
+          pendingClear = {
+            version: 1,
+            method: 'delete-project-file',
+            slot: body.slot,
+            label: captured.label,
+            rootDevice: captured.rootDevice,
+            rootInode: captured.rootInode,
+            disconnected: false,
+            public: { slot: body.slot, source: publicSource(captured), recovery: receipt, cleared: false },
+          };
+          savePendingClear(pendingClear);
+          return json(res, 202, { ok: true, verified: true, pending: true, cleared: false, slot: body.slot, source: publicSource(captured),
+            recovery: receipt, guidance: 'Deletion is staged, not confirmed. Eject the OP-Z, refresh once while absent, then return it to Content Mode and refresh again.' });
         } catch (error) {
           error.status = Number.isInteger(error.status) ? error.status : 409;
           error.code = /^[A-Z][A-Z0-9_]+$/.test(error.code || '') ? error.code : 'CLEAR_UNCONFIRMED';
@@ -1546,14 +1642,22 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { tempo: parseProject(buf).tempo, notes: parseNotes(buf, pat), tracks: parseTrackChunks(buf, pat) });
     }
     if (p === '/api/split/confirm' && req.method === 'POST') {
-      const body = validateSplitIntent(await readBody(req), testHooks.sourceResolver || getSource);
-      const metaFile = testHooks.metaFile || META_FILE;
-      const meta = loadMetaForUpdate(metaFile);
-      if (!isPlainObject(meta.splits)) meta.splits = {};
-      const intent = { parentHash: body.parentHash, halves: body.halves, confirmed: new Date().toISOString() };
-      meta.splits[body.parentHash] = intent;
-      saveMeta(meta, metaFile);
-      return json(res, 200, { ok: true, split: intent });
+      const request = await readBody(req);
+      return await withMutation('confirm split intent', async mutation => {
+        const body = validateSplitIntent(request, testHooks.sourceResolver || getSource);
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        const captured = (testHooks.captureSource || captureSource)(body.slot, source);
+        mutation.source = publicSource(captured);
+        if (captured.sha256 !== body.parentHash) throw transactionError('SPLIT_PARENT_STALE', 'The parent project changed or is unavailable.', 'Refresh the slot and review the split again.', 409);
+        const metaFile = testHooks.metaFile || META_FILE;
+        const meta = loadMetaForUpdate(metaFile);
+        if (!isPlainObject(meta.splits)) meta.splits = {};
+        const intent = { parentHash: body.parentHash, halves: body.halves, confirmed: new Date().toISOString() };
+        meta.splits[body.parentHash] = intent;
+        saveMeta(meta, metaFile);
+        return json(res, 200, { ok: true, split: intent });
+      });
     }
     if (p === '/api/split/archive' && req.method === 'POST') {
       const body = validateSplitArchiveRequest(await readBody(req));
@@ -1591,7 +1695,7 @@ const server = http.createServer(async (req, res) => {
       return await withMutation('record split hardware acceptance', async () => {
         const source = (testHooks.sourceResolver || getSource)();
         if (!source || source.device !== true) throw transactionError('HARDWARE_REQUIRED', 'A mounted OP-Z is required for acceptance.', 'Connect a real OP-Z in Content Mode, then retry.', 409);
-        const bundle = findBundle(body.file, false, testHooks.libraryRoot || LIB_DIR, Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
+        const bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR, Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR);
         if (!bundle.classification.split) throw requestError(400, 'INVALID_ACCEPTANCE', 'Only synthesized split archives require acceptance.');
         const acceptance = { version: 1, projectSha256: bundle.classification.project.sha256, ...body.outcomes, recorded: new Date().toISOString() };
         const infoPath = path.join(bundle.dir, 'info.json');
@@ -1660,10 +1764,13 @@ const server = http.createServer(async (req, res) => {
       return await withMutation(`restore slot ${body.slot}`, async mutation => {
         const source = (testHooks.sourceResolver || getSource)();
         if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
-        const captured = (testHooks.captureSource || captureSource)(body.slot, source);
+        const captured = testHooks.captureRestoreTarget
+          ? testHooks.captureRestoreTarget(body.slot, source)
+          : captureRestoreTarget(body.slot, source);
         mutation.source = publicSource(captured);
-        const stale = () => captured.sha256 !== body.targetFingerprint.sha256 || captured.bytes !== body.targetFingerprint.bytes
-          || captured.sourceToken !== body.sourceToken;
+        const expectedEmpty = body.targetFingerprint === null;
+        const stale = () => captured.sourceToken !== body.sourceToken || captured.empty === true !== expectedEmpty
+          || (!expectedEmpty && (captured.sha256 !== body.targetFingerprint.sha256 || captured.bytes !== body.targetFingerprint.bytes));
         if (stale()) throw transactionError('RESTORE_TARGET_STALE', 'The selected target changed after preview.',
           `Slot ${String(body.slot).padStart(2, '0')} changed after preview. Refresh and review it again.`, 409);
         let bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR,
@@ -1672,15 +1779,16 @@ const server = http.createServer(async (req, res) => {
           'Archive changed. Refresh before restoring.', 409);
         if (!bundle.classification.restoreEligible) throw transactionError('SPLIT_RESTORE_PENDING', 'This synthesized split archive is not restore-eligible yet.',
           'Complete the five-outcome sacrificial-device acceptance and refresh before restoring.', 409);
-        assertCapturedSource(captured);
+        assertRestoreTarget(captured);
         const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
         fs.mkdirSync(autoRoot, { recursive: true });
-        const recovery = archiveCapturedProject(captured, {
+        const recovery = expectedEmpty ? null : archiveCapturedProject(captured, {
           libraryRoot: autoRoot,
           name: `recovery-slot${body.slot}`,
           deep: false,
           operation: mutation.operation,
         });
+        assertRestoreTarget(captured);
         if (stale()) throw transactionError('RESTORE_TARGET_STALE', 'The selected target changed after preview.',
           `Slot ${String(body.slot).padStart(2, '0')} changed after preview. Refresh and review it again.`, 409);
         bundle = findBundle(body.file, body.auto, testHooks.libraryRoot || LIB_DIR,
@@ -1688,10 +1796,15 @@ const server = http.createServer(async (req, res) => {
         if (bundle.archiveRevision !== body.archiveRevision) throw transactionError('RESTORE_ARCHIVE_STALE', 'The reviewed archive changed.',
           'Archive changed. Refresh before restoring.', 409);
         let mutationStarted = false;
-        const receipt = recoveryReceipt(recovery.file, 'retained');
+        const receipt = recovery && recoveryReceipt(recovery.file, 'retained');
         try {
           const output = writeVerifiedProject(captured, bundle.buffer, {
-            beforeRename() { mutationStarted = true; if (testHooks.beforeRestoreRename) testHooks.beforeRestoreRename(); },
+            beforeRename() {
+              assertRestoreTarget(captured);
+              if (testHooks.beforeRestoreRename) testHooks.beforeRestoreRename();
+              assertRestoreTarget(captured);
+              mutationStarted = true;
+            },
             afterRename() { if (testHooks.afterRestoreRename) testHooks.afterRestoreRename(); },
           });
           const metaFile = testHooks.metaFile || META_FILE;
@@ -1706,23 +1819,28 @@ const server = http.createServer(async (req, res) => {
             throw error;
           }
           return json(res, 200, { ok: true, verified: true, slot: body.slot, source: publicSource(captured), evidence: output, recovery: receipt,
-            guidance: captured.device ? 'Written bytes were reread and verified on the mounted OP-Z in Content Mode.' : 'Written bytes were reread and verified in the local fixture.' });
+            guidance: expectedEmpty
+              ? 'Written bytes were reread and verified in the selected empty slot; no overwrite backup was needed.'
+              : captured.device ? 'Written bytes were reread and verified on the mounted OP-Z in Content Mode.' : 'Written bytes were reread and verified in the local fixture.' });
         } catch (error) {
           if (!mutationStarted) throw error;
           if (error.code === 'RESTORE_METADATA_FAILED') throw error;
           let state = 'recovery_required';
           try {
             assertCapturedRoot(captured);
-            writeVerifiedProject(captured, captured.buffer);
+            if (expectedEmpty) {
+              fs.rmSync(captured.projectPath, { force: true });
+              assertRestoreTarget(captured);
+            } else writeVerifiedProject(captured, captured.buffer);
             state = 'rolled_back';
           } catch {}
           error.status = Number.isInteger(error.status) ? error.status : 500;
           error.code = /^[A-Z][A-Z0-9_]+$/.test(error.code || '') ? error.code : 'RESTORE_FAILED';
           error.message = 'Restore did not complete.';
           error.guidance = state === 'rolled_back'
-            ? 'Original bytes were restored and verified. The verified recovery archive remains retained.'
+            ? expectedEmpty ? 'The target was returned to its original empty state.' : 'Original bytes were restored and verified. The verified recovery archive remains retained.'
             : 'Recovery is required. Reconnect the original source and restore the retained recovery archive.';
-          error.recovery = recoveryReceipt(recovery.file, state);
+          error.recovery = recovery && recoveryReceipt(recovery.file, state);
           throw error;
         }
       });

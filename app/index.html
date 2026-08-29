@@ -611,6 +611,16 @@ async function archiveSplit(slot, half) {
     toast(result.restoreEligible ? 'verified split archive accepted' : 'verified split archive saved · hardware acceptance pending');
   });
 }
+async function acceptSplit(file, auto) {
+  const checks = [...document.querySelectorAll('[data-split-acceptance]')]
+    .filter(input => input.dataset.splitAcceptance === file);
+  if (checks.length !== 5 || checks.some(input => !input.checked)) return toast('confirm all five observed hardware outcomes first');
+  const outcomes = Object.fromEntries(checks.map(input => [input.value, true]));
+  try {
+    await runMutation('record split hardware acceptance', () => api('/api/split/acceptance', { file, auto, outcomes }));
+    toast('split hardware acceptance recorded'); await load(); setTab('archives');
+  } catch {}
+}
 function updateSplit(slot, index, key, value) {
   const current = splitReviewState.get(slot) || { names: ['', ''], memberships: [[], []] };
   if (key === 'name') current.names[index] = value;
@@ -621,7 +631,7 @@ async function confirmSplit(slot) {
   const s = STATE.slots.find(item => item.slot === slot), local = splitReviewState.get(slot);
   if (!s || !local) return toast('review both halves before confirming');
   try {
-    await api('/api/split/confirm', { parentHash: s.sha256, halves: local.memberships.map((patterns, i) => ({ name: local.names[i], patterns })) });
+    await runMutation('confirm split intent', () => api('/api/split/confirm', { parentHash: s.sha256, halves: local.memberships.map((patterns, i) => ({ name: local.names[i], patterns })) }));
     splitReviewState.delete(slot); toast('split intent confirmed'); await load();
   } catch {}
 }
@@ -687,6 +697,8 @@ function renderArchives() {
   const shelf = STATE && STATE.archiveShelf || { verified: [], diagnostics: [], verifiedCount: 0, diagnosticCount: 0 };
   const errorMarkup = shelfError ? '<div class="archiveError" role="status" aria-live="polite">' + esc(shelfError) +
     '<br><button class="btn" onclick="load()">refresh</button></div>' : '';
+  const clearStatusMarkup = STATE && STATE.clearStatus ? '<div class="manualResult" role="status" aria-live="polite"><b>Automatic clear:</b> ' +
+    esc(STATE.clearStatus.guidance) + '</div>' : '';
   const verifiedMarkup = shelf.verified.length ? shelf.verified.map(item => {
     const songName = item.metadata.name || 'untitled';
     const nameMarkup = esc(songName);
@@ -717,12 +729,21 @@ function renderArchives() {
     const restore = restoreState.get(item.id);
     const target = restore && slotFacts.find(slot => slot.slot === restore.slot);
     const targetName = target && target.meta && target.meta.name || 'untitled';
-    const targetReady = Boolean(target && target.sha256 && target.sourceToken && item.restoreEligible && item.archiveRevision);
-    const splitStatus = item.split ? '<p><b>Split archive:</b> ' + esc(item.restoreEligible ? 'hardware accepted' : (item.restoreReason || 'pending sacrificial-device acceptance')) + '</p>' : '';
+    const targetReady = Boolean(target && target.sourceToken && (target.empty || target.sha256) && item.restoreEligible && item.archiveRevision);
+    const splitAcceptance = item.split && !item.restoreEligible
+      ? '<section class="manualFree" aria-label="Split hardware acceptance"><h3>Five observed hardware outcomes</h3>' +
+        '<p>Only check outcomes you personally observed on the real OP-Z for this synthesized project.</p>' +
+        ['eject','reconnect','rejection','playback','recovery'].map(outcome => '<label><input type="checkbox" data-split-acceptance="' + attr(item.id) + '" value="' + outcome + '"> ' + esc(outcome) + '</label>').join('') +
+        '<button class="btn" onclick="acceptSplit(' + fileArg + ',' + item.auto + ')">record hardware acceptance</button></section>' : '';
+    const splitStatus = item.split ? '<p><b>Split archive:</b> ' + esc(item.restoreEligible ? 'hardware accepted' : (item.restoreReason || 'pending sacrificial-device acceptance')) + '</p>' +
+      '<p><b>Parent SHA-256:</b> <code>' + esc(item.split.parentSha256) + '</code><br><b>Retained patterns:</b> ' + esc(item.split.patterns.map(pattern => pattern + 1).join(', ')) + '</p>' + splitAcceptance : '';
     const restoreOptions = '<option value="">choose a slot…</option>' + slotFacts.map(slot =>
       '<option value="' + slot.slot + '"' + (restore && restore.slot === slot.slot ? ' selected' : '') + '>slot ' + String(slot.slot).padStart(2, '0') + '</option>').join('');
     const targetPreview = target ? (targetReady
-      ? '<div class="restorePreview" tabindex="-1" data-restore-preview="' + attr(item.id) + '"><b>slot ' + esc(String(target.slot).padStart(2, '0')) + ' · ' + esc(targetName) + '</b><br>' +
+      ? target.empty
+        ? '<div class="restorePreview" tabindex="-1" data-restore-preview="' + attr(item.id) + '"><b>slot ' + esc(String(target.slot).padStart(2, '0')) + ' · empty</b><br>' +
+          esc(liveSource.device ? 'mounted OP-Z' : 'local fixture') + ' · ' + esc(liveSource.label || 'unknown source') + '<br>No project will be overwritten, so no target backup is needed.</div>'
+        : '<div class="restorePreview" tabindex="-1" data-restore-preview="' + attr(item.id) + '"><b>slot ' + esc(String(target.slot).padStart(2, '0')) + ' · ' + esc(targetName) + '</b><br>' +
         esc(liveSource.device ? 'mounted OP-Z' : 'local fixture') + ' · ' + esc(liveSource.label || 'unknown source') + '<br><code>' + esc(target.sha256.slice(0, 16)) + '</code> · ' + esc(target.bytes) + ' bytes · ' + esc(new Date(target.modified).toLocaleString()) + '<br>' +
         esc(target.tempo) + ' BPM ' + matrixSvg(target, 136, 'Current step activity matrix for slot ' + target.slot) + '<br>A verified automatic backup will be created before this slot changes.</div>'
       : '<div class="restoreResult" role="alert">Slot ' + esc(String(target.slot).padStart(2, '0')) + ' cannot be read safely. Refresh and review it again.</div>') : '';
@@ -802,7 +823,7 @@ function renderArchives() {
     (item.created ? ' · <time datetime="' + attr(item.created) + '">' + esc(new Date(item.created).toLocaleString()) + '</time>' : '') +
     (item.source ? ' · slot ' + esc(String(item.source.slot || 'unknown').padStart(2, '0')) + ' · ' + esc(item.source.device ? 'mounted OP-Z' : 'local fixture') + ' · ' + esc(item.source.label) : '') +
     '</div></summary><div class="archiveExpanded"><section class="evidenceGroup"><h3>Sanitized evidence</h3><p><b>Reason:</b> <code>' + esc(item.reason) + '</code></p></section></div></details>').join('') : '<div class="empty">No archive diagnostics.</div>';
-  root.innerHTML = errorMarkup + '<div class="archiveIntro"><div><h2>Verified archives</h2><p>Stored-byte evidence for songs retained on this Mac.</p></div>' +
+  root.innerHTML = errorMarkup + clearStatusMarkup + '<div class="archiveIntro"><div><h2>Verified archives</h2><p>Stored-byte evidence for songs retained on this Mac.</p></div>' +
     '<div class="archiveCount" aria-live="polite">' + esc(countLabel(shelf.verifiedCount, 'verified archive')) + '</div></div>' + verifiedMarkup +
     '<section class="archiveDiagnostics" aria-labelledby="archiveDiagnosticsHeading"><h2 id="archiveDiagnosticsHeading">Archive diagnostics</h2>' +
     '<div class="archiveCount">' + esc(countLabel(shelf.diagnosticCount, 'archive diagnostic')) + '</div>' + diagnosticMarkup + '</section>';
@@ -817,7 +838,7 @@ async function clearProject(file, auto) {
       file, auto, archiveRevision: item.archiveRevision, slot: slot.slot,
       targetFingerprint: { sha256: slot.sha256, bytes: slot.bytes }, sourceToken: slot.sourceToken,
     }));
-    clearState.set(file, result); toast('slot cleared · recovery retained'); await load();
+    clearState.set(file, result); toast('clear staged · eject, refresh while absent, reconnect, refresh'); await load();
   } catch (error) { clearState.set(file, error); renderArchives(); }
 }
 async function prepareManualFree(file, button) {
@@ -866,18 +887,21 @@ async function restoreProject(file, auto) {
   const item = STATE.archiveShelf.verified.find(entry => entry.id === file && entry.auto === auto);
   const restore = restoreState.get(file);
   const target = restore && STATE.slots.find(slot => slot.slot === restore.slot);
-  if (!item || !target || !target.sha256 || !target.sourceToken) return;
+  if (!item || !target || !target.sourceToken || (!target.empty && !target.sha256)) return;
   const name = item.metadata.name || 'untitled';
   const targetName = target.meta && target.meta.name || 'untitled';
   const padded = String(target.slot).padStart(2, '0');
-  if (!confirm('Restore “' + name + '” to slot ' + padded + ', replacing “' + targetName + '”? A verified automatic backup of slot ' + padded + ' will be retained. Instruments will not change.')) return;
+  const question = target.empty
+    ? 'Restore “' + name + '” to empty slot ' + padded + '? No project will be overwritten. Instruments will not change.'
+    : 'Restore “' + name + '” to slot ' + padded + ', replacing “' + targetName + '”? A verified automatic backup of slot ' + padded + ' will be retained. Instruments will not change.';
+  if (!confirm(question)) return;
   try {
     await runMutation('protecting and restoring slot ' + padded + '…', () => api('/api/restore', {
       file, auto, archiveRevision: item.archiveRevision, slot: target.slot,
-      targetFingerprint: { sha256: target.sha256, bytes: target.bytes }, sourceToken: target.sourceToken,
+      targetFingerprint: target.empty ? null : { sha256: target.sha256, bytes: target.bytes }, sourceToken: target.sourceToken,
     }));
     await load();
-    restoreState.set(file, { slot: target.slot, result: 'restore verified · recovery retained' });
+    restoreState.set(file, { slot: target.slot, result: target.empty ? 'restore verified · no overwrite backup was needed' : 'restore verified · recovery retained' });
     renderArchives();
   } catch (error) {
     const recovery = error.recovery ? ' Recovery ' + error.recovery.id + ' is retained.' : '';

@@ -216,6 +216,23 @@ test('split archive acceptance stays pending without exact five-outcome evidence
     reconnect: true, rejection: true, playback: true, recovery: false, recorded: '2026-08-25T12:00:00.000Z' }, 'a'.repeat(64)), false);
 });
 
+test('split acceptance provenance and five-outcome action reach the browser', t => {
+  const roots = tempRoots(t);
+  const fixture = fs.readFileSync(FIXTURE);
+  const split = { version: 1, parentSha256: 'b'.repeat(64), patterns: [0, 4], name: 'Half one' };
+  const dir = writeSchemaBundle(roots.libraryRoot, 'pending-split', schemaInfo(fixture, { split, acceptance: null }), fixture);
+  const item = subject.scanLibrary({ songs: {} }, roots.libraryRoot, null).find(entry => entry.file === 'pending-split');
+  const shelf = subject.archiveShelfData([item], []).verified[0];
+  assert.deepEqual(shelf.split, split);
+  assert.equal(shelf.restoreEligible, false);
+  assert.match(shelf.restoreReason, /pending sacrificial-device acceptance/);
+  assert.equal(subject.classifyArchive(dir).restoreEligible, false);
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /data-split-acceptance/);
+  assert.match(html, /Five observed hardware outcomes/);
+  assert.match(html, /api\('\/api\/split\/acceptance'/);
+});
+
 test('archive classification keeps manifest verification completeness and unicode metadata separate', t => {
   const { libraryRoot } = tempRoots(t);
   const fixture = fs.readFileSync(FIXTURE);
@@ -1110,6 +1127,41 @@ test('project restore requires an explicit fresh target and retains a verified r
   assert.ok(subject.classifyArchive(path.join(subject.testHooks.autoRoot, result.body.recovery.id)).verified);
 });
 
+test('project restore writes a reviewed empty slot without inventing a recovery archive', async t => {
+  const roots = tempRoots(t);
+  useFixtureSource(t, roots.sourceRoot);
+  const incoming = fs.readFileSync(path.join(roots.source.path, 'project01.opz'));
+  writeSchemaBundle(roots.libraryRoot, 'restore-empty', schemaInfo(incoming), incoming);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const state = await requestJson(subject.server, '/api/state');
+  const target = state.body.slots.find(item => item.slot === 2);
+  const shelf = state.body.archiveShelf.verified.find(item => item.id === 'restore-empty');
+  assert.equal(target.empty, true);
+  assert.match(target.sourceToken, /^[a-f0-9]{64}$/);
+  fs.writeFileSync(path.join(roots.source.path, 'project02.opz'), incoming);
+  const stale = await requestJson(subject.server, '/api/restore', {
+    file: 'restore-empty', auto: false, archiveRevision: shelf.archiveRevision, slot: 2,
+    targetFingerprint: null, sourceToken: target.sourceToken,
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.code, 'RESTORE_TARGET_STALE');
+  fs.unlinkSync(path.join(roots.source.path, 'project02.opz'));
+  const result = await requestJson(subject.server, '/api/restore', {
+    file: 'restore-empty', auto: false, archiveRevision: shelf.archiveRevision, slot: 2,
+    targetFingerprint: null, sourceToken: target.sourceToken,
+  });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.recovery, null);
+  assert.match(result.body.guidance, /no overwrite backup was needed/);
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project02.opz')).equals(incoming));
+  assert.deepEqual(fs.readdirSync(subject.testHooks.autoRoot), []);
+});
+
 test('verified project writes remove FAT AppleDouble sidecars', t => {
   const roots = tempRoots(t);
   const captured = subject.captureSource(1, roots.source);
@@ -1321,17 +1373,19 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
   assert.match(html, /\/api\/instruments\/restore-grid/);
 });
 
-test('automatic clear is gated, archives first, and retains recovery on confirmation failure', async t => {
+test('automatic clear stays pending until same-device reconnect confirms the empty slot', async t => {
   const roots = tempRoots(t);
   const source = { ...roots.source, device: true, label: 'fixture OP-Z' };
   fs.mkdirSync(path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01'), { recursive: true });
   fs.writeFileSync(path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01', 'fixture.engine'), 'fixture');
   const acceptanceFile = path.join(path.dirname(roots.libraryRoot), 'clear-acceptance.json');
-  subject.testHooks.sourceResolver = () => source;
+  let sourceAvailable = true;
+  subject.testHooks.sourceResolver = () => sourceAvailable ? source : null;
   subject.testHooks.libraryRoot = roots.libraryRoot;
   subject.testHooks.metaFile = path.join(path.dirname(roots.libraryRoot), 'clear-meta.json');
   subject.testHooks.autoRoot = path.join(roots.libraryRoot, 'auto-backups');
   subject.testHooks.clearAcceptanceFile = acceptanceFile;
+  subject.testHooks.clearPendingFile = path.join(path.dirname(roots.libraryRoot), 'clear-pending.json');
   fs.mkdirSync(subject.testHooks.autoRoot, { recursive: true });
   t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
@@ -1349,18 +1403,30 @@ test('automatic clear is gated, archives first, and retains recovery on confirma
   fs.writeFileSync(acceptanceFile, JSON.stringify({ version: 1, method: 'delete-project-file', fixture: true,
     device: { label: source.label, projectSha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(roots.source.path, 'project01.opz'))).digest('hex') },
     outcomes: { eject: true, reconnect: true, rejection: true, playback: true, recovery: true, emptySlot: true }, recorded: '2026-08-25T12:00:00.000Z' }));
-  subject.testHooks.confirmClear = () => false;
-  const failed = await requestJson(subject.server, '/api/clear-slot', {
+  const pending = await requestJson(subject.server, '/api/clear-slot', {
     file: archive.body.file, auto: false, archiveRevision: state.body.archiveShelf.verified.find(item => item.id === archive.body.file).archiveRevision,
     slot: 1, targetFingerprint: { sha256: slot.sha256, bytes: slot.bytes }, sourceToken: slot.sourceToken,
   });
   // complete deep archive is required before the delete boundary
   assert.equal(archive.body.complete, true, JSON.stringify({ result: archive.body, info: JSON.parse(fs.readFileSync(path.join(roots.libraryRoot, archive.body.file, 'info.json'), 'utf8')) }));
-  assert.equal(failed.status, 409); assert.equal(failed.body.code, 'CLEAR_UNCONFIRMED');
+  assert.equal(pending.status, 202);
+  assert.equal(pending.body.pending, true);
+  assert.equal(pending.body.cleared, false);
+  assert.equal(fs.existsSync(subject.testHooks.clearPendingFile), true);
   assert.equal(fs.existsSync(path.join(roots.source.path, 'project01.opz')), false);
-  assert.ok(failed.body.recovery && failed.body.recovery.id);
-  assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, failed.body.recovery.id)).verified, true);
-  assert.match(failed.body.guidance, /Reconnect.*restore/i);
+  assert.ok(pending.body.recovery && pending.body.recovery.id);
+  assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, pending.body.recovery.id)).verified, true);
+  const sameMount = await requestJson(subject.server, '/api/state');
+  assert.equal(sameMount.body.clearStatus.state, 'awaiting_disconnect');
+  sourceAvailable = false;
+  const absent = await requestJson(subject.server, '/api/state');
+  assert.equal(absent.body.clearStatus.state, 'awaiting_reconnect');
+  sourceAvailable = true;
+  const reconnected = await requestJson(subject.server, '/api/state');
+  assert.equal(reconnected.body.clearStatus.state, 'confirmed');
+  assert.equal(reconnected.body.clearStatus.cleared, true);
+  assert.equal(reconnected.body.slots.find(item => item.slot === 1).empty, true);
+  assert.equal(fs.existsSync(subject.testHooks.clearPendingFile), false);
 });
 
 test('clear acceptance reader gates the proven method, not one sacrificial project', t => {
