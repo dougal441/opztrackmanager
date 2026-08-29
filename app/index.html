@@ -17,6 +17,7 @@
     --sans: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
   html { scroll-behavior: smooth; }
   body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans);
          -webkit-font-smoothing: antialiased; overflow-x: hidden; }
@@ -273,6 +274,7 @@
       <h2>library</h2>
       <div class="desc">Songs saved off the device. Deep backups carry the full instrument setup for a complete reload.</div>
       <div id="library"></div>
+      <button class="btn acc" style="margin-top:10px;min-height:44px" data-mutation="archive-device" onclick="archiveDevice()">archive all occupied slots</button>
     </section>
     <section>
       <h2>swap slots</h2>
@@ -498,6 +500,8 @@ function renderSlots() {
     }
     const name = s.meta && s.meta.name || '';
     const tags = s.meta && s.meta.tags || '';
+    const archived = STATE.archiveShelf.verified.some(item => item.project.sha256 === s.sha256
+      || item.split && item.split.parentSha256 === s.sha256);
     const chainStr = s.chains.length ? s.chains.map(c => c.patterns.map(p => p + 1).join('·')).join('  /  ') : '';
     row.className = 'songRow' + (expanded === s.slot ? ' open' : '');
     row.onclick = () => toggle(s.slot);
@@ -506,7 +510,8 @@ function renderSlots() {
       '<div class="titleCell">' +
         '<input class="songName" placeholder="untitled" value="' + attr(name) + '" ' +
           'onclick="event.stopPropagation()" onchange="saveMeta(\'' + s.hash + '\',{name:this.value})">' +
-        '<div class="meta2">' + s.usedPatterns.length + ' pat' + (chainStr ? ' · ' + chainStr : '') + (tags ? ' · ' + esc(tags) : '') + '</div>' +
+        '<div class="meta2">' + s.usedPatterns.length + ' pat' + (chainStr ? ' · ' + chainStr : '') + (tags ? ' · ' + esc(tags) : '') +
+          (archived ? ' · device + archive' : ' · device only') + '</div>' +
       '</div>' +
       '<div>' + matrixSvg(s, 136) + '</div>' +
       '<div class="bpmCell">' + s.tempo + '<small> BPM</small></div>' +
@@ -551,7 +556,8 @@ function detailHtml(s) {
       (s.meta && s.meta.wav === r.path && wavRoot === r.root ? ' selected' : '') + '>' +
       esc(r.name) + (r.root === 'device' ? ' · on device' : '') + '</option>')).join('');
   const pats = s.usedPatterns.map(i =>
-    '<span class="pat" id="pat-' + s.slot + '-' + i + '" onclick="event.stopPropagation();playPattern(' + s.slot + ',' + i + ')">▶ ' + String(i + 1).padStart(2,'0') + '</span>').join('');
+    '<span class="pat" id="pat-' + s.slot + '-' + i + '"><input class="song-pattern-' + s.slot + '" type="checkbox" value="' + i + '" checked onclick="event.stopPropagation()" aria-label="include pattern ' + String(i + 1).padStart(2,'0') + '"> ' +
+    '<span onclick="event.stopPropagation();playPattern(' + s.slot + ',' + i + ')">▶ ' + String(i + 1).padStart(2,'0') + '</span></span>').join('');
   const kit = (s.meta && s.meta.kit) || {};
   const present = aggTracksPresent(s);
   const kitSel = present.map(t =>
@@ -576,6 +582,9 @@ function detailHtml(s) {
       '<textarea placeholder="Where you left off, what to try next…" ' +
         'onchange="saveMeta(\'' + s.hash + '\',{notes:this.value})">' + esc(s.meta && s.meta.notes || '') + '</textarea>' +
       '<div class="lbl">library</div>' +
+      '<input id="song-selection-name-' + s.slot + '" style="width:100%;margin-bottom:8px" maxlength="80" placeholder="song name" value="' + attr(name) + '">' +
+      '<button class="btn acc" data-mutation="song-selection" onclick="archiveSelection(' + s.slot + ',false)">archive selected patterns</button> ' +
+      '<button class="btn live" data-mutation="song-selection" onclick="archiveSelection(' + s.slot + ',true)">move selected to archive</button><br><br>' +
       '<button class="btn acc" data-mutation="archive" onclick="backup(' + s.slot + ')">archive complete song</button>' +
       splitReviewHtml(s) +
     '</div>';
@@ -609,6 +618,24 @@ async function archiveSplit(slot, half) {
     const result = await api('/api/split/archive', { parentHash: s.sha256, half });
     await load(); setTab('archives');
     toast(result.restoreEligible ? 'verified split archive accepted' : 'verified split archive saved · hardware acceptance pending');
+  });
+}
+async function archiveSelection(slot, move) {
+  const s = STATE.slots.find(item => item.slot === slot);
+  const patterns = [...document.querySelectorAll('.song-pattern-' + slot + ':checked')].map(input => Number(input.value));
+  const name = document.getElementById('song-selection-name-' + slot).value.trim();
+  if (!s || !patterns.length || !name) return toast('choose patterns and enter a song name');
+  const verb = move ? 'Archive and remove' : 'Archive';
+  if (!confirm(verb + ' patterns ' + patterns.map(pattern => pattern + 1).join(', ') + ' as “' + name + '”?')) return;
+  await runMutation((move ? 'move' : 'archive') + ' selected patterns', async () => {
+    const result = await api('/api/song-selection', {
+      slot, name, patterns, move, sourceToken: s.sourceToken,
+      targetFingerprint: { sha256: s.sha256, bytes: s.bytes },
+    });
+    await load();
+    if (!result.moved) setTab('archives');
+    toast(result.clearRequired ? 'song archived · use archive-and-clear to empty the whole slot'
+      : result.moved ? 'song moved to archive · unselected patterns remain' : 'selected patterns archived');
   });
 }
 async function acceptSplit(file, auto) {
@@ -678,11 +705,25 @@ async function backup(slot) {
     if (summary) summary.focus();
   });
 }
+async function archiveDevice() {
+  const occupied = STATE.slots.filter(slot => !slot.empty && !slot.error).length;
+  if (!occupied) return toast('no occupied slots to archive');
+  if (!confirm('Create one dated archive of all ' + occupied + ' occupied slots and the complete sample-pack grid?\nDevice data will not change.')) return;
+  await runMutation('archive all occupied slots', async () => {
+    const result = await api('/api/archive-device', {});
+    await load();
+    toast('dated device archive verified · ' + result.projects.length + ' slots');
+  });
+}
 function renderLibrary() {
   const lib = document.getElementById('library');
   const shelf = STATE.archiveShelf;
+  const snapshots = STATE.deviceSnapshots || [];
+  const latestSnapshot = snapshots.find(item => item.verified);
   lib.innerHTML = '<div class="libSub">' + esc(countLabel(shelf.verifiedCount, 'verified archive')) + '</div>' +
     '<div class="libSub">' + esc(countLabel(shelf.diagnosticCount, 'archive diagnostic')) + '</div>' +
+    '<div class="libSub">' + esc(countLabel(snapshots.filter(item => item.verified).length, 'dated device archive')) + '</div>' +
+    (latestSnapshot ? '<div class="libSub">latest: ' + esc(new Date(latestSnapshot.created).toLocaleString()) + ' · slots ' + esc(latestSnapshot.projects.map(project => String(project.slot).padStart(2, '0')).join(', ')) + '</div>' : '') +
     '<button class="btn" style="margin-top:10px;min-height:44px" onclick="setTab(\'archives\')">open archive shelf</button>';
 }
 function renderArchives() {
@@ -729,13 +770,18 @@ function renderArchives() {
     const restore = restoreState.get(item.id);
     const target = restore && slotFacts.find(slot => slot.slot === restore.slot);
     const targetName = target && target.meta && target.meta.name || 'untitled';
+    const deviceSlots = slotFacts.filter(slot => slot.sha256 === item.project.sha256
+      || item.split && slot.sha256 === item.split.parentSha256).map(slot => slot.slot);
+    const locationLabel = deviceSlots.length
+      ? 'device slot ' + deviceSlots.map(slot => String(slot).padStart(2, '0')).join(', ') + ' + archive'
+      : 'archive only';
     const targetReady = Boolean(target && target.sourceToken && (target.empty || target.sha256) && item.restoreEligible && item.archiveRevision);
     const splitAcceptance = item.split && !item.restoreEligible
       ? '<section class="manualFree" aria-label="Split hardware acceptance"><h3>Five observed hardware outcomes</h3>' +
         '<p>Only check outcomes you personally observed on the real OP-Z for this synthesized project.</p>' +
         ['eject','reconnect','rejection','playback','recovery'].map(outcome => '<label><input type="checkbox" data-split-acceptance="' + attr(item.id) + '" value="' + outcome + '"> ' + esc(outcome) + '</label>').join('') +
         '<button class="btn" data-mutation="split-acceptance" onclick="acceptSplit(' + fileArg + ',' + item.auto + ')">record hardware acceptance</button></section>' : '';
-    const splitStatus = item.split ? '<p><b>Split archive:</b> ' + esc(item.restoreEligible ? 'hardware accepted' : (item.restoreReason || 'pending sacrificial-device acceptance')) + '</p>' +
+    const splitStatus = item.split ? '<p><b>' + esc(item.split.version === 2 ? 'Pattern song' : 'Split archive') + ':</b> ' + esc(item.restoreEligible ? 'restore ready' : (item.restoreReason || 'pending sacrificial-device acceptance')) + '</p>' +
       '<p><b>Parent SHA-256:</b> <code>' + esc(item.split.parentSha256) + '</code><br><b>Retained patterns:</b> ' + esc(item.split.patterns.map(pattern => pattern + 1).join(', ')) + '</p>' + splitAcceptance : '';
     const restoreOptions = '<option value="">choose a slot…</option>' + slotFacts.map(slot =>
       '<option value="' + slot.slot + '"' + (restore && restore.slot === slot.slot ? ' selected' : '') + '>slot ' + String(slot.slot).padStart(2, '0') + '</option>').join('');
@@ -788,15 +834,19 @@ function renderArchives() {
       ? '<p><b>Manual-free eligibility:</b> current exact match</p><button class="btn manualPrepare" onclick="prepareManualFree(' + fileArg + ',this)">prepare manual freeing</button>'
       : '<p><b>Manual-free eligibility:</b> unavailable</p><p>' + esc(ineligibleCopy) + '</p>';
     const currentSlot = slotFacts.find(entry => entry.slot === slot);
+    const clearMatchesSlot = currentSlot && (item.project.sha256 === currentSlot.sha256
+      || item.split && item.split.parentSha256 === currentSlot.sha256
+        && item.split.patterns.length === currentSlot.usedPatterns.length
+        && item.split.patterns.every(pattern => currentSlot.usedPatterns.includes(pattern)));
     const clear = typeof clearState === 'undefined' ? null : clearState.get(item.id);
-    const clearAction = STATE.clearEnabled === true && item.complete && item.source.device && currentSlot && currentSlot.sha256
+    const clearAction = STATE.clearEnabled === true && item.complete && item.source.device && clearMatchesSlot
       ? '<p><b>Automatic clearing:</b> exact acceptance method enabled</p><button class="btn live" data-mutation="clear" onclick="clearProject(' + fileArg + ',' + item.auto + ')">archive and clear slot</button>' +
         (clear ? '<div class="manualResult" role="alert" tabindex="-1">' + esc(clear.guidance || 'Automatic clearing was not confirmed. The recovery archive remains retained.') + '</div>' : '')
       : '<p><b>Automatic clearing:</b> unavailable; use the manual-free checklist.</p>';
     return '<details class="archiveRow"><summary class="archiveSummary" data-archive-id="' + attr(item.id) + '">' +
       '<div><div class="archiveName">' + nameMarkup + '</div><div class="archiveTags">' + tagsMarkup + '</div></div>' +
       matrixSvg(item, 136, 'Step activity matrix for “' + (item.metadata.name || 'untitled') + '”') +
-      '<div class="archiveFacts">slot ' + String(item.source.slot).padStart(2, '0') + ' · ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
+      '<div class="archiveFacts">' + esc(locationLabel) + '<br>source slot ' + String(item.source.slot).padStart(2, '0') + ' · ' + esc(sourceKind) + ' · ' + esc(item.source.label) +
       '<br><time datetime="' + attr(item.created) + '">' + esc(new Date(item.created).toLocaleString()) + '</time>' +
       '<div class="badges"><span class="badge verified">verified</span><span class="badge">' + (item.complete ? 'complete' : 'project only') +
       '</span><span class="badge">' + esc(snippetLabel) + '</span></div></div><span class="chevron">evidence</span></summary>' +

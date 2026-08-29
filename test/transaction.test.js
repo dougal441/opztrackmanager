@@ -166,6 +166,106 @@ test('verified archive tracer publishes reread, parsed bytes with evidence', t =
   assert.equal(subject.scanLibrary({ songs: {} }, libraryRoot, null)[0].verified, false);
 });
 
+test('dated device snapshot stores every occupied project and one verified shared grid without changing source', t => {
+  const roots = tempRoots(t);
+  const snapshotRoot = path.join(roots.libraryRoot, 'device-snapshots');
+  fs.mkdirSync(snapshotRoot);
+  fs.copyFileSync(FIXTURE, path.join(roots.source.path, 'project04.opz'));
+  const pack = path.join(roots.sourceRoot, 'samplepacks', '1-kick', '01');
+  fs.mkdirSync(pack, { recursive: true });
+  fs.writeFileSync(path.join(pack, 'kick.aif'), 'grid bytes');
+  const before = snapshotRegularFiles(roots.sourceRoot);
+
+  const result = subject.archiveDeviceSnapshot(roots.source, { snapshotRoot });
+  assert.equal(result.verified, true);
+  assert.deepEqual(result.projects.map(project => project.slot), [1, 4]);
+  assert.equal(result.samplepacks.fileCount, 1);
+  assert.deepEqual(snapshotRegularFiles(roots.sourceRoot), before);
+  assert.deepEqual(subject.scanDeviceSnapshots(snapshotRoot).map(item => item.id), [result.id]);
+
+  const bundle = path.join(snapshotRoot, result.id);
+  fs.writeFileSync(path.join(bundle, 'projects', 'project04.opz'), Buffer.from('corrupt'));
+  assert.equal(subject.classifyDeviceSnapshot(bundle).verified, false);
+});
+
+test('device snapshot route publishes per-slot evidence and appears in state', async t => {
+  const roots = tempRoots(t);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = null;
+  subject.testHooks.snapshotRoot = path.join(roots.libraryRoot, 'device-snapshots');
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+
+  const archived = await requestJson(subject.server, '/api/archive-device', {});
+  assert.equal(archived.status, 200, JSON.stringify(archived.body));
+  assert.equal(archived.body.projects.length, 1);
+  assert.equal(archived.body.projects[0].storedBytesMatch, true);
+  assert.equal(archived.body.projects[0].parsed, true);
+  const state = await request(subject.server, '/api/state');
+  assert.equal(state.body.deviceSnapshots.length, 1);
+  assert.equal(state.body.deviceSnapshots[0].verified, true);
+});
+
+test('pattern-selected song archives restore-ready and recovery-first move retains unselected indexes', async t => {
+  const roots = tempRoots(t);
+  const autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(autoRoot);
+  const metaFile = path.join(path.dirname(roots.libraryRoot), 'meta.json');
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = autoRoot;
+  subject.testHooks.metaFile = metaFile;
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const before = subject.captureSource(1, roots.source);
+
+  const archived = await requestJson(subject.server, '/api/song-selection', {
+    slot: 1, name: 'Selected song', patterns: [0, 4], move: false,
+    sourceToken: before.sourceToken, targetFingerprint: { sha256: before.sha256, bytes: before.bytes },
+  });
+  assert.equal(archived.status, 200, JSON.stringify(archived.body));
+  assert.equal(archived.body.restoreEligible, true);
+  assert.equal(archived.body.moved, false);
+  assert.deepEqual(subject.captureSource(1, roots.source).buffer, before.buffer);
+  const item = subject.scanLibrary({ songs: {} }, roots.libraryRoot, autoRoot).find(entry => entry.file === archived.body.file);
+  assert.equal(item.split.version, 2);
+  assert.deepEqual(item.split.patterns, [0, 4]);
+
+  const moved = await requestJson(subject.server, '/api/song-selection', {
+    slot: 1, name: 'Moved song', patterns: [0, 4], move: true,
+    sourceToken: before.sourceToken, targetFingerprint: { sha256: before.sha256, bytes: before.bytes },
+  });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal(moved.body.moved, true);
+  assert.deepEqual(parseProject(fs.readFileSync(path.join(roots.source.path, 'project01.opz'))).usedPatterns, [6, 7, 8, 10, 11, 12]);
+  const recovery = subject.findBundle(moved.body.recovery.id, true, roots.libraryRoot, autoRoot);
+  assert.ok(recovery.buffer.equals(before.buffer));
+});
+
+test('failed pattern move restores the exact original and retains recovery', async t => {
+  const roots = tempRoots(t);
+  const autoRoot = path.join(roots.libraryRoot, 'auto-backups');
+  fs.mkdirSync(autoRoot);
+  subject.testHooks.sourceResolver = () => roots.source;
+  subject.testHooks.libraryRoot = roots.libraryRoot;
+  subject.testHooks.autoRoot = autoRoot;
+  subject.testHooks.metaFile = path.join(path.dirname(roots.libraryRoot), 'meta.json');
+  subject.testHooks.afterSelectionRename = () => { throw new Error('injected readback failure'); };
+  t.after(() => { for (const key of Object.keys(subject.testHooks)) delete subject.testHooks[key]; if (subject.server.listening) subject.server.close(); });
+  await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
+  const before = subject.captureSource(1, roots.source);
+
+  const result = await requestJson(subject.server, '/api/song-selection', {
+    slot: 1, name: 'Rollback song', patterns: [0, 4], move: true,
+    sourceToken: before.sourceToken, targetFingerprint: { sha256: before.sha256, bytes: before.bytes },
+  });
+  assert.equal(result.status, 500);
+  assert.equal(result.body.code, 'SONG_MOVE_FAILED');
+  assert.equal(result.body.recovery.state, 'rolled_back');
+  assert.ok(fs.readFileSync(path.join(roots.source.path, 'project01.opz')).equals(before.buffer));
+});
+
 test('split review is deterministic, explicitly confirmed, and source immutable', async t => {
   const fixture = fs.readFileSync(FIXTURE);
   const roots = tempRoots(t, fixture);
@@ -1355,7 +1455,7 @@ test('later-phase routes unavailable before filesystem mutation', async t => {
   const unavailable = [
     '/api/op1fun/download',
   ];
-  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/op1fun/download'] });
+  assert.deepEqual(subject.mutationRouteInventory, { enabled: ['/api/backup', '/api/archive-device', '/api/song-selection', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'], unavailable: ['/api/op1fun/download'] });
   await new Promise((resolve, reject) => subject.server.listen(0, '127.0.0.1', resolve).once('error', reject));
   t.after(() => { if (subject.server.listening) subject.server.close(); });
   for (const route of unavailable) {
@@ -1608,6 +1708,7 @@ test('archive shelf is the only archive renderer and songs show counts only', ()
 test('tab semantics provide archive shelf roving focus', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   assert.match(html, /<nav class="tabs" role="tablist"/);
+  assert.match(html, /\[hidden\] \{ display: none !important; \}/);
   assert.match(html, /nav\.tabs \.tab, \.archiveShelf \.btn \{ min-height: 44px; font-weight: 600; \}/);
   for (const [id, controls, label] of [
     ['tab-songs', 'view-songs', 'songs'],
@@ -1701,6 +1802,25 @@ test('archive success always captures complete grid then opens and focuses shelf
   assert.match(body, /setTab\('archives'\)/);
   assert.match(body, /dataset\.archiveId === r\.file/);
   assert.match(body, /\.focus\(\)/);
+});
+
+test('songs view offers one dated all-slots archive action', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, />archive all occupied slots<\/button>/);
+  assert.match(html, /api\('\/api\/archive-device', \{\}\)/);
+  assert.match(html, /dated device archive/);
+  assert.match(html, /Device data will not change/);
+});
+
+test('songs expose pattern selection, archive move, unified locations, and existing restore', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
+  assert.match(html, /class="song-pattern-/);
+  assert.match(html, />archive selected patterns<\/button>/);
+  assert.match(html, />move selected to archive<\/button>/);
+  assert.match(html, /api\('\/api\/song-selection'/);
+  assert.match(html, /device \+ archive/);
+  assert.match(html, /archive only/);
+  assert.match(html, /onclick="restoreProject\(/);
 });
 
 test('manual free is device-only, request-local, exact-match, and fail-closed', async t => {
