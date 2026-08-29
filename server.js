@@ -32,7 +32,7 @@ const SOURCE_TOKEN_SECRET = crypto.randomBytes(32);
 const PACK_TYPES = ['1-kick', '2-snare', '3-perc', '4-fx', '5-bass', '6-lead', '7-arpeggio', '8-chord'];
 const META_TRACKS = ['kick', 'snare', 'hihat', 'sample', 'bass', 'lead', 'arp', 'chord'];
 const mutationRouteInventory = Object.freeze({
-  enabled: ['/api/backup', '/api/archive-device', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
+  enabled: ['/api/backup', '/api/archive-device', '/api/song-selection', '/api/restore', '/api/swap', '/api/clear-slot', '/api/instruments/restore-grid', '/api/instruments/move', '/api/instruments/remove', '/api/instruments/import', '/api/instruments/snapshot'],
   unavailable: [
     '/api/op1fun/download',
   ],
@@ -363,6 +363,22 @@ function validateSplitArchiveRequest(body) {
   }
   return { parentHash: body.parentHash.toLowerCase(), half: body.half };
 }
+function validateSongSelectionRequest(body) {
+  if (!isPlainObject(body) || !hasExactKeys(body, ['slot', 'name', 'patterns', 'move', 'sourceToken', 'targetFingerprint'])) {
+    throw requestError(400, 'INVALID_SONG_SELECTION', 'Pattern selection request is invalid.');
+  }
+  validateSlot(body.slot); validateString(body.name, 'name', 80, false); validateBoolean(body.move, 'move');
+  validateString(body.sourceToken, 'sourceToken', 64, false);
+  if (!/^[a-f0-9]{64}$/i.test(body.sourceToken) || !Array.isArray(body.patterns) || !body.patterns.length
+      || body.patterns.some(pattern => !Number.isInteger(pattern) || pattern < 0 || pattern > 15)
+      || new Set(body.patterns).size !== body.patterns.length
+      || !isPlainObject(body.targetFingerprint) || !hasExactKeys(body.targetFingerprint, ['sha256', 'bytes'])
+      || !/^[a-f0-9]{64}$/i.test(body.targetFingerprint.sha256)
+      || !Number.isSafeInteger(body.targetFingerprint.bytes) || body.targetFingerprint.bytes < 1) {
+    throw requestError(400, 'INVALID_SONG_SELECTION', 'Pattern selection evidence is invalid.');
+  }
+  return { ...body, name: sanitizeSplitName(body.name, 'song name'), patterns: body.patterns.slice().sort((a, b) => a - b) };
+}
 function validateAcceptanceRequest(body) {
   if (!isPlainObject(body) || !hasExactKeys(body, ['file', 'auto', 'outcomes'])) {
     throw requestError(400, 'INVALID_ACCEPTANCE', 'Acceptance requires one archive and five outcomes.');
@@ -547,8 +563,11 @@ function validateArchiveInfo(info) {
     throw Object.assign(new Error('invalid sample packs'), { archiveCode: 'ARCHIVE_CORRUPT' });
   }
   if (Object.hasOwn(info, 'split')) {
-    if (!hasExactKeys(info.split, ['version', 'parentSha256', 'patterns', 'name'])
-        || info.split.version !== 1 || !/^[a-f0-9]{64}$/.test(info.split.parentSha256)
+    const splitShape = info.split.version === 1
+      ? hasExactKeys(info.split, ['version', 'parentSha256', 'patterns', 'name'])
+      : info.split.version === 2 && hasExactKeys(info.split, ['version', 'parentSha256', 'patterns', 'name', 'method'])
+        && info.split.method === 'retain-pattern-indexes-v1';
+    if (!splitShape || !/^[a-f0-9]{64}$/.test(info.split.parentSha256)
         || !Array.isArray(info.split.patterns) || !info.split.patterns.length
         || info.split.patterns.some(p => !Number.isInteger(p) || p < 0 || p > 15)
         || typeof info.split.name !== 'string' || !info.split.name.length || info.split.name.length > 80) {
@@ -603,7 +622,7 @@ function classifyArchive(dir) {
     }
     const complete = info.samplepacks.captured && ['included', 'unlinked'].includes(info.snippet.status);
     const split = info.split || null;
-    const restoreEligible = !split || acceptanceValid(info.acceptance, info.project.sha256);
+    const restoreEligible = !split || split.version === 2 || acceptanceValid(info.acceptance, info.project.sha256);
     const result = {
       verified: true,
       complete,
@@ -1365,6 +1384,52 @@ function archiveDeviceSnapshot(source, options = {}) {
     throw archiveError('ARCHIVE_FAILED', 'Device archive could not be verified.');
   }
 }
+function archivePatternSelection(captured, selection, options) {
+  if (captured.sourceToken !== selection.sourceToken
+      || captured.sha256 !== selection.targetFingerprint.sha256
+      || captured.bytes !== selection.targetFingerprint.bytes) {
+    throw transactionError('SONG_SELECTION_STALE', 'The selected slot changed after preview.', 'Refresh and select the patterns again.', 409);
+  }
+  const used = parseProject(captured.buffer).usedPatterns.slice().sort((a, b) => a - b);
+  if (selection.patterns.some(pattern => !used.includes(pattern))) {
+    throw requestError(400, 'INVALID_SONG_SELECTION', 'Only occupied patterns can be archived as a song.');
+  }
+  const archiveBuffer = synthesizeSplitProject(captured.buffer, selection.patterns);
+  const archive = archiveCapturedProject(captured, {
+    libraryRoot: options.libraryRoot, archiveBuffer, deep: true, name: selection.name,
+    operation: options.operation, metadata: { ...(options.metadata || {}), name: selection.name },
+    split: { version: 2, parentSha256: captured.sha256, patterns: selection.patterns.slice(),
+      name: selection.name, method: 'retain-pattern-indexes-v1' },
+  });
+  if (!selection.move) return { ...archive, moved: false, patterns: selection.patterns };
+  const remaining = used.filter(pattern => !selection.patterns.includes(pattern));
+  if (!remaining.length) return { ...archive, moved: false, clearRequired: true, patterns: selection.patterns,
+    guidance: 'Song archived. Open it on the Archive Shelf and use the proven archive-and-clear action to remove the whole slot.' };
+  const recovery = archiveCapturedProject(captured, {
+    libraryRoot: options.autoRoot, name: `recovery-slot${captured.slot}`, deep: false,
+    operation: options.operation, metadata: options.metadata,
+  });
+  const receipt = recoveryReceipt(recovery.file, 'retained');
+  const remainingBuffer = synthesizeSplitProject(captured.buffer, remaining);
+  try {
+    if (typeof options.beforeMove === 'function') options.beforeMove(remainingBuffer);
+    assertCapturedSource(captured);
+    const write = writeVerifiedProject(captured, remainingBuffer, { afterRename: options.afterRename });
+    return { ...archive, moved: true, patterns: selection.patterns, remainingPatterns: remaining, write, recovery: receipt,
+      guidance: 'Selected song archived and removed. Unselected patterns remain in their original positions; the verified recovery is retained.' };
+  } catch (error) {
+    let state = 'recovery_required';
+    try { assertCapturedRoot(captured); writeVerifiedProject(captured, captured.buffer); state = 'rolled_back'; } catch {}
+    error.status = Number.isInteger(error.status) ? error.status : 500;
+    error.code = 'SONG_MOVE_FAILED';
+    error.message = 'Selected patterns were not moved off the device.';
+    error.guidance = state === 'rolled_back'
+      ? 'The original project was restored and verified. The song archive and recovery remain retained.'
+      : 'Restore the retained recovery archive before changing the slot again.';
+    error.recovery = recoveryReceipt(recovery.file, state);
+    throw error;
+  }
+}
 function projFile(slot) {
   const src = getSource();
   if (!src) throw new Error('no source');
@@ -1829,6 +1894,33 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- song library ----
+    if (p === '/api/song-selection' && req.method === 'POST') {
+      const body = validateSongSelectionRequest(await readBody(req));
+      return await withMutation(`${body.move ? 'move' : 'archive'} selected patterns from slot ${body.slot}`, async mutation => {
+        const source = (testHooks.sourceResolver || getSource)();
+        if (!source) throw sourceError('SOURCE_UNAVAILABLE', 'No project source is available.');
+        const captured = (testHooks.captureSource || captureSource)(body.slot, source);
+        mutation.source = publicSource(captured);
+        const metaFile = testHooks.metaFile || META_FILE;
+        const meta = loadMeta(metaFile);
+        const annotation = isPlainObject(meta.songs[hashFile(captured.buffer)]) ? meta.songs[hashFile(captured.buffer)] : {};
+        const autoRoot = Object.hasOwn(testHooks, 'autoRoot') ? testHooks.autoRoot : AUTO_DIR;
+        if (autoRoot) fs.mkdirSync(autoRoot, { recursive: true });
+        const result = archivePatternSelection(captured, body, {
+          libraryRoot: testHooks.libraryRoot || LIB_DIR,
+          autoRoot,
+          operation: mutation.operation,
+          metadata: annotation,
+          beforeMove: remainingBuffer => {
+            const updated = loadMetaForUpdate(metaFile);
+            updated.songs[hashFile(remainingBuffer)] = { ...annotation, updated: new Date().toISOString() };
+            saveMeta(updated, metaFile);
+          },
+          afterRename: testHooks.afterSelectionRename,
+        });
+        return json(res, 200, result);
+      });
+    }
     if (p === '/api/archive-device' && req.method === 'POST') {
       const body = await readBody(req);
       if (!isPlainObject(body) || Object.keys(body).length) throw requestError(400, 'INVALID_REQUEST', 'Device archive request must be empty.');
@@ -2291,6 +2383,7 @@ module.exports = {
   splitEvidence,
   validateSplitIntent,
   validateSplitArchiveRequest,
+  validateSongSelectionRequest,
   validateAcceptanceRequest,
   validateClear,
   loadClearAcceptance,
@@ -2316,6 +2409,7 @@ module.exports = {
   withMutation,
   archiveCapturedProject,
   archiveDeviceSnapshot,
+  archivePatternSelection,
   classifyDeviceSnapshot,
   scanDeviceSnapshots,
   scanLibrary,
