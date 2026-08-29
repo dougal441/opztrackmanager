@@ -1,0 +1,20 @@
+.DS_Store
+.gsd/
+.planning/graphs/
+.planning/milestone.lock
+.planning/research/.cache/
+.planning/phases/01-verified-transaction-foundation/01-PATTERNS.md
+Contents/
+HANDOVER.md
+graphify-out/
+
+# Personal and device content never belongs in source control.
+bounces/
+library/
+opzdisk/
+data/*.json
+!data/clear-acceptance.json
+*.opz
+*.aif
+*.aiff
+*.wav
