@@ -30,7 +30,9 @@ Dougal can free an OP-Z slot knowing the complete song can be verified and resto
 
 ### Active
 
-(Defined by the next milestone.)
+- Archive every occupied device slot in one verified dated snapshot.
+- Treat device projects and archive entries as one song collection with explicit location state.
+- Archive and move any selected Pattern 1–16 subset as a restorable song.
 
 ### Out of Scope
 
@@ -42,13 +44,13 @@ Dougal can free an OP-Z slot knowing the complete song can be verified and resto
 
 ## Current State
 
-v1.0 Trustworthy Library shipped on 2026-08-29. All 22 requirements, six phases, seven end-to-end flows, the local suite, and direct OP-Z playback/recovery UAT passed. The public MIT repository is `dougal441/opztrackmanager`.
+v1.0 Trustworthy Library shipped on 2026-08-29. All 22 requirements, six phases, seven end-to-end flows, the local suite, and direct OP-Z playback/recovery UAT passed. The public MIT repository is `dougal441/opztrackmanager`. Milestone v1.1 Unified Songs is active.
 
 ## Next Milestone Goals
 
-- Make top-level tabs render only their own section.
-- Archive every occupied device slot in one dated operation.
-- Treat device songs and archived songs as one transferable unit, with explicit pattern selection for split/archive/restore.
+- Archive every occupied device slot in one verified dated operation.
+- Treat device songs and archived songs as one transferable unit.
+- Select explicit patterns when archiving or moving part of a slot as a restorable song.
 
 ## Context
 
@@ -89,6 +91,8 @@ Split detection can reuse existing parsed pattern occupancy, chains, track profi
 | Validate clearing and synthesized projects on real hardware | Filesystem behavior and firmware acceptance cannot be assumed | ✓ Good — v1.0 |
 | Treat absent project files as empty slots only after physical-device proof | Firmware behavior, not fixtures, defines the device contract | ✓ Good — v1.0 |
 | Keep a pending clear as a global mutation reservation | No later write may invalidate reconnect confirmation or recovery | ✓ Good — v1.0 |
+| Store a full-device archive as one snapshot with one shared grid | Avoid copying the same large grid once per occupied slot while retaining complete recovery evidence | — Pending v1.1 |
+| Preserve original pattern positions in selected-song archives | Reuse the hardware-accepted synthesis format and avoid an unnecessary remapping system | — Pending v1.1 |
 
 ## Evolution
 
@@ -108,4 +112,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-29 after v1.0 milestone*
+*Last updated: 2026-08-29 for v1.1 Unified Songs*

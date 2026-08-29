@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
-status: Awaiting next milestone
-stopped_at: Milestone complete after direct OP-Z playback and final recovery verification
+status: Planning
+stopped_at: v1.1 roadmap defined; ready to plan Phase 7
 last_updated: "2026-08-29T07:44:08.286Z"
 last_activity: 2026-08-29
-last_activity_desc: Milestone v1.0 completed and archived
+last_activity_desc: Milestone v1.1 Unified Songs started
 state_head: 3dedef95aaf0b2356a08e52f7ca4e134f4281e7f
 progress:
-  total_phases: 6
+  total_phases: 8
   completed_phases: 6
   total_plans: 12
   completed_plans: 12
-  percent: 100
-current_phase: 6
-current_phase_name: Hardware-Gated Automatic Clearing
+  percent: 75
+current_phase: 7
+current_phase_name: Dated Full-Device Archive
 ---
 
 # Project State
@@ -23,14 +23,14 @@ current_phase_name: Hardware-Gated Automatic Clearing
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** Dougal can free an OP-Z slot knowing the complete song can be verified and restored later.
-**Current focus:** Milestone complete
+**Current focus:** v1.1 Unified Songs — dated device archive
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
+Phase: 7 of 8 — Dated Full-Device Archive
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-29 — Milestone v1.0 completed and archived
+Status: Ready to plan
+Last activity: 2026-08-29 — Milestone v1.1 Unified Songs started
 
 ## Performance Metrics
 
@@ -80,7 +80,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Pending Todos
 
-None yet.
+- Phase 7: dated full-device archive.
+- Phase 8: unified pattern-level song lifecycle.
 
 ### Blockers/Concerns
 
@@ -101,4 +102,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with $gsd-new-milestone
+- Plan and execute Phase 7.
