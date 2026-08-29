@@ -1,19 +1,18 @@
 ---
 gsd_state_version: 1.0
 current_phase: 6
-current_phase_name: Hardware-Gated Automatic Clearing
-status: complete
+status: "Milestone v1 shipped — PR #1"
 stopped_at: Milestone complete after direct OP-Z playback and final recovery verification
-last_updated: "2026-08-29T07:37:38.000Z"
+last_updated: "2026-08-29T07:42:10.008Z"
 last_activity: 2026-08-29
-last_activity_desc: Milestone audit integration gaps closed and reverified
-state_head: b31fcee714270832864261eebdb6becce3de2773
+state_head: fc3e0c38b7556b33de0fe1b9aee661e1d3ccebb1
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 9
   completed_plans: 9
   percent: 100
+current_phase_name: Hardware-Gated Automatic Clearing
 ---
 
 # Project State
@@ -29,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 Phase: 6 — COMPLETE
 Plan: all 9 plans executed
-Status: All automated, direct filesystem/device, playback, rejection, and recovery evidence passed
-Last activity: 2026-08-29 — milestone audit gaps closed; 64 local tests pass after complete hardware UAT
+Status: Milestone v1 shipped — PR #1
+Last activity: 2026-08-29
 
 Progress: [████████████████████] 9/9 plans ([██████████] 100%)
 
