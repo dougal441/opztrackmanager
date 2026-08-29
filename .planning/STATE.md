@@ -1,17 +1,18 @@
 ---
 gsd_state_version: 1.0
-current_phase: 6
-status: "Milestone v1 shipped — PR #1"
+status: Awaiting next milestone
 stopped_at: Milestone complete after direct OP-Z playback and final recovery verification
-last_updated: "2026-08-29T07:42:10.008Z"
+last_updated: "2026-08-29T07:44:08.286Z"
 last_activity: 2026-08-29
-state_head: fc3e0c38b7556b33de0fe1b9aee661e1d3ccebb1
+last_activity_desc: Milestone v1.0 completed and archived
+state_head: 3dedef95aaf0b2356a08e52f7ca4e134f4281e7f
 progress:
   total_phases: 6
   completed_phases: 6
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 12
+  completed_plans: 12
   percent: 100
+current_phase: 6
 current_phase_name: Hardware-Gated Automatic Clearing
 ---
 
@@ -26,12 +27,10 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 
 ## Current Position
 
-Phase: 6 — COMPLETE
-Plan: all 9 plans executed
-Status: Milestone v1 shipped — PR #1
-Last activity: 2026-08-29
-
-Progress: [████████████████████] 9/9 plans ([██████████] 100%)
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-29 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -99,3 +98,7 @@ None yet.
 Last session: 2026-08-26T02:07:25.398Z
 Stopped at: Phase 2 complete, ready to plan Phase 3
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with $gsd-new-milestone
