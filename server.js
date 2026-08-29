@@ -1111,6 +1111,9 @@ function assertRestoreTarget(captured) {
   if (fs.existsSync(captured.projectPath)) throw sourceError('SOURCE_CHANGED', 'The selected empty slot changed.');
 }
 async function withMutation(operation, callback) {
+  if (!pendingClear) pendingClear = loadPendingClear();
+  if (pendingClear) throw transactionError('CLEAR_PENDING', 'Automatic clear confirmation is still pending.',
+    'Finish the disconnect, reconnect, and final refresh before starting another mutation.', 409);
   if (activeMutation) {
     const conflict = transactionError('MUTATION_CONFLICT', 'Another mutation is already running.',
       'Wait for the current operation to finish, then refresh and retry.', 409);

@@ -229,6 +229,8 @@ test('split acceptance provenance and five-outcome action reach the browser', t 
   assert.equal(subject.classifyArchive(dir).restoreEligible, false);
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   assert.match(html, /data-split-acceptance/);
+  assert.match(html, /data-mutation="split-acceptance"/);
+  assert.match(html, /data-mutation="split-confirm"/);
   assert.match(html, /Five observed hardware outcomes/);
   assert.match(html, /api\('\/api\/split\/acceptance'/);
 });
@@ -1414,6 +1416,9 @@ test('automatic clear stays pending until same-device reconnect confirms the emp
   assert.equal(pending.body.cleared, false);
   assert.equal(fs.existsSync(subject.testHooks.clearPendingFile), true);
   assert.equal(fs.existsSync(path.join(roots.source.path, 'project01.opz')), false);
+  const competing = await requestJson(subject.server, '/api/backup', { slot: 2, name: 'blocked while pending', deep: false });
+  assert.equal(competing.status, 409);
+  assert.equal(competing.body.code, 'CLEAR_PENDING');
   assert.ok(pending.body.recovery && pending.body.recovery.id);
   assert.equal(subject.classifyArchive(path.join(subject.testHooks.autoRoot, pending.body.recovery.id)).verified, true);
   const sameMount = await requestJson(subject.server, '/api/state');

@@ -583,7 +583,7 @@ function detailHtml(s) {
 function splitReviewHtml(s) {
   const review = s.splitReview;
   if (!review || !review.suggested) return '';
-  if (review.confirmed) return '<section class="splitReview" aria-label="confirmed split archive actions" onclick="event.stopPropagation()"><h3>confirmed split intent</h3><p class="splitEvidence">Archive either half as a verified local bundle. Restore remains locked until sacrificial-device acceptance.</p><div class="splitHalves">' + review.confirmed.halves.map((half, i) => '<button class="btn acc" onclick="archiveSplit(' + s.slot + ',' + i + ')">archive ' + esc(half.name) + '</button>').join(' ') + '</div></section>';
+  if (review.confirmed) return '<section class="splitReview" aria-label="confirmed split archive actions" onclick="event.stopPropagation()"><h3>confirmed split intent</h3><p class="splitEvidence">Archive either half as a verified local bundle. Restore remains locked until sacrificial-device acceptance.</p><div class="splitHalves">' + review.confirmed.halves.map((half, i) => '<button class="btn acc" data-mutation="split-archive" onclick="archiveSplit(' + s.slot + ',' + i + ')">archive ' + esc(half.name) + '</button>').join(' ') + '</div></section>';
   const local = splitReviewState.get(s.slot) || { names: ['', ''], memberships: review.memberships.map(p => p.slice()) };
   const evidence = review.evidence;
   const chainText = evidence.chains.map(c => 'chain ' + (c.index + 1) + ': ' + c.patterns.map(p => p + 1).join(', ')).join(' · ');
@@ -599,7 +599,7 @@ function splitReviewHtml(s) {
       '<label for="split-patterns-' + s.slot + '-' + i + '">patterns (1–16, comma separated)</label>' +
       '<input id="split-patterns-' + s.slot + '-' + i + '" value="' + attr(local.memberships[i].map(p => p + 1).join(', ')) + '" inputmode="numeric" ' +
       'oninput="updateSplit(' + s.slot + ',' + i + ',\'patterns\',this.value)"></div>').join('') +
-    '</div><div style="margin-top:10px"><button class="btn acc" onclick="confirmSplit(' + s.slot + ')">confirm split intent</button> ' +
+    '</div><div style="margin-top:10px"><button class="btn acc" data-mutation="split-confirm" onclick="confirmSplit(' + s.slot + ')">confirm split intent</button> ' +
     '<button class="btn ghost" onclick="rejectSplit(' + s.slot + ')">reject</button></div></section>';
 }
 async function archiveSplit(slot, half) {
@@ -734,7 +734,7 @@ function renderArchives() {
       ? '<section class="manualFree" aria-label="Split hardware acceptance"><h3>Five observed hardware outcomes</h3>' +
         '<p>Only check outcomes you personally observed on the real OP-Z for this synthesized project.</p>' +
         ['eject','reconnect','rejection','playback','recovery'].map(outcome => '<label><input type="checkbox" data-split-acceptance="' + attr(item.id) + '" value="' + outcome + '"> ' + esc(outcome) + '</label>').join('') +
-        '<button class="btn" onclick="acceptSplit(' + fileArg + ',' + item.auto + ')">record hardware acceptance</button></section>' : '';
+        '<button class="btn" data-mutation="split-acceptance" onclick="acceptSplit(' + fileArg + ',' + item.auto + ')">record hardware acceptance</button></section>' : '';
     const splitStatus = item.split ? '<p><b>Split archive:</b> ' + esc(item.restoreEligible ? 'hardware accepted' : (item.restoreReason || 'pending sacrificial-device acceptance')) + '</p>' +
       '<p><b>Parent SHA-256:</b> <code>' + esc(item.split.parentSha256) + '</code><br><b>Retained patterns:</b> ' + esc(item.split.patterns.map(pattern => pattern + 1).join(', ')) + '</p>' + splitAcceptance : '';
     const restoreOptions = '<option value="">choose a slot…</option>' + slotFacts.map(slot =>
@@ -790,7 +790,7 @@ function renderArchives() {
     const currentSlot = slotFacts.find(entry => entry.slot === slot);
     const clear = typeof clearState === 'undefined' ? null : clearState.get(item.id);
     const clearAction = STATE.clearEnabled === true && item.complete && item.source.device && currentSlot && currentSlot.sha256
-      ? '<p><b>Automatic clearing:</b> exact acceptance method enabled</p><button class="btn live" onclick="clearProject(' + fileArg + ',' + item.auto + ')">archive and clear slot</button>' +
+      ? '<p><b>Automatic clearing:</b> exact acceptance method enabled</p><button class="btn live" data-mutation="clear" onclick="clearProject(' + fileArg + ',' + item.auto + ')">archive and clear slot</button>' +
         (clear ? '<div class="manualResult" role="alert" tabindex="-1">' + esc(clear.guidance || 'Automatic clearing was not confirmed. The recovery archive remains retained.') + '</div>' : '')
       : '<p><b>Automatic clearing:</b> unavailable; use the manual-free checklist.</p>';
     return '<details class="archiveRow"><summary class="archiveSummary" data-archive-id="' + attr(item.id) + '">' +
