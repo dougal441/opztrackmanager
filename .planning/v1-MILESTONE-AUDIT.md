@@ -1,119 +1,73 @@
 ---
 milestone: v1
 audited: 2026-08-29
-status: gaps_found
+status: passed
 scores:
-  requirements: 9/22
-  phases: 2/6
-  integration: 8/11
-  flows: 4/7
+  requirements: 22/22
+  phases: 6/6
+  integration: 11/11
+  flows: 7/7
 gaps:
-  requirements:
-    - id: "REST-01..REST-05"
-      status: "orphaned"
-      phase: "03-guarded-restore-instrument-recovery"
-      claimed_by_plans: ["03-01-PLAN.md", "03-02-PLAN.md", "03-03-PLAN.md"]
-      completed_by_plans: ["03-01-SUMMARY.md", "03-02-SUMMARY.md", "03-03-SUMMARY.md"]
-      verification_status: "missing"
-      evidence: "Phase 3 has no VERIFICATION.md. Integration tracing also found that empty slots cannot satisfy the current restore target contract."
-    - id: "SPLT-01..SPLT-03"
-      status: "orphaned"
-      phase: "04-split-review-confirmed-intent"
-      claimed_by_plans: ["04-01-PLAN.md"]
-      completed_by_plans: ["04-01-SUMMARY.md"]
-      verification_status: "missing"
-      evidence: "Phase 4 has no VERIFICATION.md; split confirmation also bypasses the global mutation guard and split provenance is omitted from shelf projection."
-    - id: "SPLT-04..SPLT-05"
-      status: "orphaned"
-      phase: "05-validated-split-half-archives"
-      claimed_by_plans: ["05-01-PLAN.md"]
-      completed_by_plans: ["05-01-SUMMARY.md"]
-      verification_status: "missing"
-      evidence: "Phase 5 has no VERIFICATION.md and /api/split/acceptance has no browser consumer, breaking the product acceptance-to-restore path."
-    - id: "CLEAR-01..CLEAR-03"
-      status: "orphaned"
-      phase: "06-hardware-gated-automatic-clearing"
-      claimed_by_plans: ["06-01-PLAN.md"]
-      completed_by_plans: ["06-01-SUMMARY.md"]
-      verification_status: "missing"
-      evidence: "Phase 6 has no VERIFICATION.md; clear success is currently inferred from same-mount file absence instead of a reconnect-confirmed state."
-  integration:
-    - "Phase 6 cleared-slot state cannot satisfy Phase 3 restore target validation."
-    - "Phase 5 split acceptance API has no browser consumer or user-visible acceptance path."
-    - "Phase 6 clear reports success before an eject/reconnect confirmation boundary."
-  flows:
-    - "Archive, clear, and restore later breaks when selecting the empty target."
-    - "Synthesized half acceptance and restore breaks at the orphaned acceptance route."
-    - "Automatic clear confirmation ends before reconnect validation."
-tech_debt:
-  - phase: "04-split-review-confirmed-intent"
-    items:
-      - "Split provenance and pending acceptance reason are omitted from Archive Shelf projection."
-      - "Split confirmation is not serialized through the shared mutation guard."
+  requirements: []
+  integration: []
+  flows: []
+tech_debt: []
 nyquist:
-  compliant_phases: []
-  partial_phases: []
-  not_validated_phases: []
-  missing_phases: []
-  overall: "inactive"
+  overall: inactive
 ---
 
 # Milestone v1 Audit
 
 ## Result
 
-The milestone is not ready to ship. The phase completion ledger and all 22 requirement checkboxes claim completion, but only Phases 1 and 2 have phase-level verification reports. The required cross-phase trace found three broken product flows.
+Milestone v1 is ready to ship. All 22 requirements have a completed plan summary, a passing phase verification report, wired implementation, and behavioral evidence. All six phases pass and all seven end-to-end flows are connected.
 
 ## Phase Verification
 
-| Phase | Verification | Result |
-|---|---|---|
-| 1. Verified Transaction Foundation | `01-VERIFICATION.md` | Passed |
-| 2. Verified Archive Shelf & Manual Freeing | `02-VERIFICATION.md` | Passed |
-| 3. Guarded Restore & Instrument Recovery | Missing | Blocker |
-| 4. Split Review & Confirmed Intent | Missing | Blocker |
-| 5. Validated Split-Half Archives | Missing | Blocker |
-| 6. Hardware-Gated Automatic Clearing | Missing | Blocker |
+| Phase | Result |
+|---|---|
+| 1. Verified Transaction Foundation | Passed |
+| 2. Verified Archive Shelf & Manual Freeing | Passed |
+| 3. Guarded Restore & Instrument Recovery | Passed |
+| 4. Split Review & Confirmed Intent | Passed |
+| 5. Validated Split-Half Archives | Passed |
+| 6. Hardware-Gated Automatic Clearing | Passed |
 
 ## Three-Source Requirements Cross-Check
 
-| Requirements | REQUIREMENTS.md | SUMMARY frontmatter | VERIFICATION.md | Final status |
+| Requirement family | REQUIREMENTS.md | SUMMARY frontmatter | VERIFICATION.md | Final |
 |---|---|---|---|---|
-| ARCH-01, ARCH-02, ARCH-04, SAFE-01, SAFE-02, SAFE-03 | Complete | Listed | Passed | Satisfied |
-| ARCH-03, ARCH-05, SAFE-04 | Complete | Listed | Passed | Satisfied |
-| REST-01..REST-04 | Complete | Listed | Missing | Orphaned / unsatisfied |
-| REST-05 | Complete | Not explicitly listed | Missing | Orphaned / unsatisfied |
-| SPLT-01..SPLT-03 | Complete | Listed | Missing | Orphaned / unsatisfied |
-| SPLT-04..SPLT-05 | Complete | Listed | Missing | Orphaned / unsatisfied |
-| CLEAR-01..CLEAR-03 | Complete | Listed | Missing | Orphaned / unsatisfied |
+| ARCH-01..05 | Complete | Listed | Passed | Satisfied |
+| SAFE-01..04 | Complete | Listed | Passed | Satisfied |
+| REST-01..05 | Complete | Listed | Passed | Satisfied |
+| SPLT-01..05 | Complete | Listed | Passed | Satisfied |
+| CLEAR-01..03 | Complete | Listed | Passed | Satisfied |
 
-## Cross-Phase Integration
+## Integration and E2E
 
-The integration checker verified eight major contracts: pinned capture through verified shelf publication; occupied-target project restore; whole-grid restore; split review through deterministic half synthesis; and the supporting source, recovery, and acceptance gates.
+The final trace verified 11 major contracts and seven complete flows:
 
-The following release blockers remain:
+1. Source-pinned, stored-byte-verified archive publication.
+2. First-class shelf and exact-match manual-free fallback.
+3. Occupied-target restore with verified recovery.
+4. Empty-target restore bound to the same reviewed device without a fake backup.
+5. Independent whole-grid recovery and restore.
+6. Evidence-only split review and mutation-serialized confirmation.
+7. Deterministic half synthesis with visible parent/pattern provenance.
+8. Product-facing five-outcome hardware acceptance and restore eligibility.
+9. Acceptance-gated archive-first automatic clear.
+10. Persisted pending clear across disconnect and same-device reconnect.
+11. Retained recovery and fail-closed guidance across every destructive path.
 
-1. **Cleared-slot restore:** Phase 6 represents an empty slot without the fingerprint and source token required by Phase 3. The browser cannot select it and the server attempts to capture a target file that no longer exists. Affected: REST-01, REST-02, REST-03, CLEAR-02, CLEAR-03.
-2. **Split hardware acceptance:** `/api/split/acceptance` is not consumed by the browser, so a pending synthesized half cannot complete acceptance through the product. Affected: SPLT-05.
-3. **Reconnect confirmation:** `/api/clear-slot` treats same-request file absence as confirmed success; it does not wait for and validate a later reconnect. Affected: CLEAR-02.
+The three initial audit blockers were closed in quick task `260829-e19`: cleared slots are valid explicit restore targets; split acceptance is wired into the browser; and automatic clear cannot report success until a later same-device reconnect confirms absence. The two follow-up warnings were also closed by reserving the global mutation pipeline while clear confirmation is pending and wiring every destructive control to the shared busy state.
 
-## E2E Flows
+## Verification Evidence
 
-| Flow | Status |
-|---|---|
-| Archive occupied slot into a verified shelf record | Complete |
-| Restore a verified archive over an occupied target with recovery | Complete |
-| Restore a whole instrument grid with deep recovery | Complete |
-| Review and synthesize a confirmed split half | Complete |
-| Archive, clear, then restore into the cleared slot | Broken at empty-target selection |
-| Accept a synthesized half on hardware, then restore | Broken at acceptance UI/API connection |
-| Automatically clear and confirm after reconnect | Broken before reconnect confirmation |
+- `node --check server.js` — passed.
+- `node --test test/transaction.test.js` — 64 passed, 0 failed, 4 explicit opt-in hardware tests skipped in the final ordinary run.
+- Direct physical OP-Z restore/grid, synthesized-half playback/recovery, and automatic-clear/recovery UAT — passed. Fixtures were never counted as hardware evidence.
+- Final restored hardware identities were reread exactly; slot 10 matched SHA-256 `ed91476ca975f2f3cafd3503a250a56debe1ad2fbfcf39ae6f1724b2b9465f16`, and the repeated slot-1 playback comparison matched the user's pre-test recording.
 
-## Required Closure
+## Deferred Scope
 
-- Add an explicit empty-target restore contract that does not invent a previous project and still validates the same mounted device and chosen slot.
-- Model automatic clear as pending until a later same-device reconnect confirms the slot is empty; retain recovery throughout.
-- Expose split acceptance state/provenance and a product-facing way to record the five observed hardware outcomes.
-- Serialize split confirmation and publish split provenance in the shelf projection.
-- Add Phase 3–6 verification reports only after the repaired flows and complete suite pass.
-
+Only the explicit v2 backlog remains: per-song sample-pack refinement, full-device configuration snapshots, descendant/history intelligence, and bounce linking. None blocks the v1 core value.

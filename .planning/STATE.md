@@ -4,10 +4,10 @@ current_phase: 6
 current_phase_name: Hardware-Gated Automatic Clearing
 status: complete
 stopped_at: Milestone complete after direct OP-Z playback and final recovery verification
-last_updated: "2026-08-28T23:53:12.000Z"
+last_updated: "2026-08-29T07:37:38.000Z"
 last_activity: 2026-08-29
-last_activity_desc: All phases and physical OP-Z UAT completed
-state_head: fd369c4ab29d0e8a66f67b4514accc980187621c
+last_activity_desc: Milestone audit integration gaps closed and reverified
+state_head: b31fcee714270832864261eebdb6becce3de2773
 progress:
   total_phases: 6
   completed_phases: 6
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-26)
 Phase: 6 — COMPLETE
 Plan: all 9 plans executed
 Status: All automated, direct filesystem/device, playback, rejection, and recovery evidence passed
-Last activity: 2026-08-29 — accepted split playback and final exact slot-1 recovery verified
+Last activity: 2026-08-29 — milestone audit gaps closed; 64 local tests pass after complete hardware UAT
 
 Progress: [████████████████████] 9/9 plans ([██████████] 100%)
 

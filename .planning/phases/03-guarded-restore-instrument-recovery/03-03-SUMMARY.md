@@ -19,6 +19,7 @@ metrics:
   duration: "~25m"
   completed: 2026-08-27
 status: complete
+requirements-completed: [REST-05]
 actuals:
   tokens: 12500
   tasks: 2
