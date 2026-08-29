@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-status: Milestone verified
-stopped_at: v1.1 direct OP-Z UAT and full suite passed; ready to ship
-last_updated: "2026-08-29T08:05:56.785Z"
+milestone: v1.1
+status: Awaiting next milestone
+stopped_at: Milestone v1.1 completed and archived
+last_updated: "2026-08-29T08:07:51.681Z"
 last_activity: 2026-08-29
-last_activity_desc: Milestone v1.1 Unified Songs verified on physical OP-Z
-state_head: 3dedef95aaf0b2356a08e52f7ca4e134f4281e7f
+last_activity_desc: Milestone v1.1 completed and archived
+state_head: d4902f05e930418482e0e9100c843abbd43065bc
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 14
-  completed_plans: 14
-  percent: 100
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
 current_phase: 8
 current_phase_name: Unified Pattern-Level Songs
 ---
@@ -23,14 +23,14 @@ current_phase_name: Unified Pattern-Level Songs
 See: .planning/PROJECT.md (updated 2026-08-26)
 
 **Core value:** Dougal can free an OP-Z slot knowing the complete song can be verified and restored later.
-**Current focus:** v1.1 Unified Songs — verified, ready to ship
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 8 of 8 — Unified Pattern-Level Songs
-Plan: 1 of 1 complete
-Status: Milestone verified
-Last activity: 2026-08-29 — Direct OP-Z archive, move, and exact recovery UAT passed
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-29 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -101,4 +101,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Ship v1.1.
+- Start the next milestone with $gsd-new-milestone

@@ -1,5 +1,19 @@
 # Milestones
 
+## v1.1 Unified Songs (Shipped: 2026-08-29)
+
+**Phases completed:** 2 phases, 2 plans, 0 tasks
+
+**Key accomplishments:**
+
+- Added one verified dated snapshot for every occupied device slot with one shared instrument grid.
+- Made any non-empty pattern selection a named, restore-ready archive while preserving original pattern indexes.
+- Added recovery-first selected-pattern moves that retain unselected patterns and roll back exactly on failure.
+- Unified device/archive location language and reused the proven restore and whole-slot clear paths.
+- Passed direct USB OP-Z archive, subset move, exact recovery, rejection, and unrelated-file checks.
+
+---
+
 ## v1.0 Trustworthy Library (Shipped: 2026-08-29)
 
 **Phases completed:** 6 phases, 12 plans, 16 tasks

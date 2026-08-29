@@ -37,6 +37,38 @@
 
 ## Cross-Milestone Trends
 
+## Milestone: v1.1 — Unified Songs
+
+**Shipped:** 2026-08-29
+**Phases:** 2 | **Plans:** 2
+
+### What Was Built
+
+- Compact dated archives of every occupied slot and one shared grid.
+- Explicit pattern-selection archives and recovery-first selected-pattern moves.
+- Unified device/archive location states with existing verified restore and clear actions.
+
+### What Worked
+
+- Reusing the proven synthesis, archive, write, and restore paths kept the feature small and testable.
+- The physical UAT restored exact original bytes without an eject-dependent cycle.
+- One snapshot-level grid copy avoided multiplying the largest archive payload by ten slots.
+
+### What Was Inefficient
+
+- The milestone completion tool did not populate accomplishments from these concise summaries, so the milestone index needed a small manual update.
+
+### Patterns Established
+
+- A song is a named pattern selection with immutable parent provenance and explicit location state.
+- Selected-pattern removal publishes both the portable song and original-project recovery before device mutation.
+
+### Key Lessons
+
+- Hardware-accepted file transformations can be reused as a method-level contract when exact readback and recovery remain mandatory.
+- Whole-device snapshots and per-song archives serve different recovery scopes and should not duplicate the shared grid.
+
 | Milestone | Requirements | Phases | Local tests | Hardware UAT |
 |---|---:|---:|---:|---|
 | v1.0 | 22/22 | 6/6 | 64 passed | Passed |
+| v1.1 | 10/10 | 2/2 | 70 passed | Passed |
