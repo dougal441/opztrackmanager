@@ -1608,6 +1608,7 @@ test('archive shelf is the only archive renderer and songs show counts only', ()
 test('tab semantics provide archive shelf roving focus', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'index.html'), 'utf8');
   assert.match(html, /<nav class="tabs" role="tablist"/);
+  assert.match(html, /\[hidden\] \{ display: none !important; \}/);
   assert.match(html, /nav\.tabs \.tab, \.archiveShelf \.btn \{ min-height: 44px; font-weight: 600; \}/);
   for (const [id, controls, label] of [
     ['tab-songs', 'view-songs', 'songs'],
