@@ -2,7 +2,7 @@
 
 ## What This Is
 
-OP-Z Manager is a zero-configuration macOS librarian for Dougal's Teenage Engineering OP-Z. It shows and annotates the ten device project slots, previews songs, manages sample packs, and keeps an unlimited laptop library so a slot can be freed without losing the complete song.
+OP-Z Manager is a zero-configuration macOS librarian for Teenage Engineering OP-Z owners. It shows and annotates the ten device project slots, previews songs, manages sample packs, and keeps an unlimited laptop library so a slot can be freed without losing the complete song.
 
 Milestone v1.0 shipped a trustworthy archive-and-restore workflow, user-confirmed split-song handling, hardware-accepted synthesized projects, and recovery-first automatic clearing.
 
@@ -30,7 +30,9 @@ Dougal can free an OP-Z slot knowing the complete song can be verified and resto
 
 ### Active
 
-(Defined by the next milestone.)
+- [ ] Other Mac users can download a clean OP-Z Manager release from GitHub without receiving personal or development files
+- [ ] Users can choose a self-contained Mac app or a transparent source package while retaining the same manager functionality
+- [ ] First-time users can install, launch, use, troubleshoot, update, and remove the product using complete plain-language documentation and supplied visuals
 
 ### Out of Scope
 
@@ -44,15 +46,23 @@ Dougal can free an OP-Z slot knowing the complete song can be verified and resto
 
 v1.0 Trustworthy Library shipped on 2026-08-29. Milestone v1.1 Unified Songs is verified: dated ten-slot device archives, pattern-selected archive/move/restore, the full local suite, and direct OP-Z exact-recovery UAT passed. The public MIT repository is `dougal441/opztrackmanager`.
 
-## Next Milestone Goals
+## Current Milestone: v1.2 GitHub Product Release
 
-(Defined after v1.1 ships.)
+**Goal:** Deliver OP-Z Manager as a safe, understandable GitHub product that other Mac users can run locally without changing its proven experience or functionality.
+
+**Target features:**
+- Self-contained unsigned macOS app downloads for Apple Silicon and Intel, with no Node or Homebrew prerequisite
+- A clean portable source package for users who prefer the transparent GitHub route
+- Complete plain-language setup, usage, safety, troubleshooting, update, removal, and data-location documentation with all required visuals supplied
+- Repeatable release packaging that excludes personal content, secrets, device data, archives, recordings, tests, and planning files
 
 ## Context
 
 The OP-Z has ten unnamed project slots. Dougal has more songs than slots and has previously squeezed two unrelated songs into separate halves of one project because clearing a slot did not feel safe. A stale manual spreadsheet did not solve the problem.
 
 The existing app is functional and uses a no-dependency Node.js server, a single-file browser UI, filesystem-backed storage, an OP-Z binary parser, and an AIFF-to-WAV adapter. It already supports project bundles, deep whole-grid backups, restore, slot swap, recoverable instrument removal, metadata, snippets, and device/local source selection.
+
+Milestone v1.2 uses GitHub Releases as the informal distribution channel. The release offers self-contained unsigned Mac apps with Apple's documented one-time Privacy & Security override, plus a portable source package requiring Node LTS. The app must store user content outside its application bundle so replacing the app cannot replace or erase archives or settings.
 
 The hardware-proven clear method deletes the selected project file after verified archive and recovery creation, then remains pending until the same OP-Z reconnects and confirms the slot is absent. An empty slot is represented by an absent project file.
 
@@ -89,6 +99,9 @@ Split detection can reuse existing parsed pattern occupancy, chains, track profi
 | Keep a pending clear as a global mutation reservation | No later write may invalidate reconnect confirmation or recovery | ✓ Good — v1.0 |
 | Store a full-device archive as one snapshot with one shared grid | Avoid copying the same large grid once per occupied slot while retaining complete recovery evidence | ✓ Good — v1.1 |
 | Preserve original pattern positions in selected-song archives | Reuse the hardware-accepted synthesis format and avoid an unnecessary remapping system | ✓ Good — v1.1 |
+| Publish through GitHub Releases without Apple Developer membership | This is an informal open-source tool; unsigned apps remain user-installable through Apple's documented override | — Pending — v1.2 |
+| Offer self-contained Mac apps and a portable source package | Give nontechnical users a double-click product and technical users a transparent fallback without rewriting the application | — Pending — v1.2 |
+| Keep persistent user data outside packaged application bundles | App replacement and Gatekeeper app translocation must never endanger archives or settings | — Pending — v1.2 |
 
 ## Evolution
 
@@ -108,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-29 after v1.1 physical-device verification*
+*Last updated: 2026-08-30 after starting v1.2 GitHub Product Release*
