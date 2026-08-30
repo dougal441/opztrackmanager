@@ -60,16 +60,28 @@
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| DIST-01 | Phase 10 | Pending |
+| DIST-02 | Phase 9 | Pending |
+| DIST-03 | Phase 9 | Pending |
+| DIST-04 | Phase 9 | Pending |
+| SAFE-01 | Phase 9 | Pending |
+| SAFE-02 | Phase 9 | Pending |
+| DOCS-01 | Phase 10 | Pending |
+| DOCS-02 | Phase 10 | Pending |
+| DOCS-03 | Phase 10 | Pending |
+| DOCS-04 | Phase 10 | Pending |
+| REL-01 | Phase 9 | Pending |
+| REL-02 | Phase 9 | Pending |
+| GHUB-01 | Phase 10 | Pending |
+| GHUB-02 | Phase 10 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14
+- Mapped to phases: 14
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-30*
-*Last updated: 2026-08-30 after approved milestone scoping and GitHub distribution research*
+*Last updated: 2026-08-30 after roadmap creation*
